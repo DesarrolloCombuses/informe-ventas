@@ -42,7 +42,8 @@ const LS = {
   titles: 'idv.titulos',
   sel:    'idv.seleccion',
   pend:   'idv.pendientes',
-  libre:  'idv.rangolibre'
+  libre:  'idv.rangolibre',
+  perfil: 'idv.perfil'
 };
 
 /* --------------------------------- estado -------------------------------- */
@@ -59,6 +60,8 @@ const state = {
   origen: '',                      // archivo | nube | mixto
   fechasNube: {},                  // { "YYYY-MM-DD": cantidad de turnos }
   perfil: null,                    // ficha en informe_usuarios (null = no habilitado)
+  usuarios: {},                    // { user_id: ficha } para mostrar quién modificó
+  desbloqueado: false,             // true solo con una sesión verificada
   libre: Object.assign({}, TURNO_LIBRE),
   sort: { key: null, dir: 1 }
 };
@@ -274,6 +277,7 @@ function loadCSVText(text, fileName) {
 
 function readFile(file) {
   if (!file) return;
+  if (!state.desbloqueado) { toast('Inicia sesión para cargar archivos', true); return; }
   if (!/\.csv$/i.test(file.name) && file.type !== 'text/csv') {
     toast('Selecciona un archivo .csv', true);
     return;
@@ -398,13 +402,38 @@ function saveNovedades(list) {
   marcarPendiente(key);
 }
 
+/** Quién y cuándo: va dentro de la novedad para que el autor no se pierda. */
+function firmaAutor(nueva) {
+  const u = Nube.usuario();
+  const quien = nombreUsuario() || (u ? u.email : '');
+  const correo = u ? u.email : '';
+  const ahora = new Date().toISOString();
+  const firma = { editadoPor: quien, editadoCorreo: correo, editado: ahora };
+  if (nueva) Object.assign(firma, { autor: quien, autorCorreo: correo, creado: ahora });
+  return firma;
+}
+
+const fechaHoraCorta = (iso) => (iso
+  ? new Date(iso).toLocaleString('es-CO', {
+      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+  : '');
+
+function textoFirma(n) {
+  if (!n.autor) return '';
+  let t = `Registró ${n.autor} · ${fechaHoraCorta(n.creado)}`;
+  if (n.editadoPor && n.editado && n.editado !== n.creado) {
+    t += ` · editó ${n.editadoPor} · ${fechaHoraCorta(n.editado)}`;
+  }
+  return t;
+}
+
 function addNovedad() {
   const list = novedadesActuales().slice();
-  list.push({
+  list.push(Object.assign({
     id: 'n' + Date.now() + Math.random().toString(36).slice(2, 6),
     shift: '', accion: 'RESTAR', texto: '',
     efectivo: 0, transfer: 0, tarjeta: 0
-  });
+  }, firmaAutor(true)));
   saveNovedades(list);
   render();
   // enfoca la descripción de la fila recién creada
@@ -413,9 +442,13 @@ function addNovedad() {
 }
 
 function updateNovedad(id, field, value) {
-  const list = novedadesActuales().map((n) =>
-    n.id === id ? Object.assign({}, n, { [field]: value }) : n);
-  saveNovedades(list);
+  let cambio = false;
+  const list = novedadesActuales().map((n) => {
+    if (n.id !== id || n[field] === value) return n;   // salir del campo sin cambiar no firma
+    cambio = true;
+    return Object.assign({}, n, { [field]: value }, firmaAutor(false));
+  });
+  if (cambio) saveNovedades(list);
 }
 
 function deleteNovedad(id) {
@@ -501,6 +534,7 @@ function render() {
   $('#empty').hidden = rows.length > 0;
   $('#summary').hidden = false;
   $('#reportTitle').value = tituloActual();
+  pintarUltimaModificacion();
   if ($('#selDate').value !== state.date) $('#selDate').value = state.date;
   if ($('#selShift').value !== state.turnoId) $('#selShift').value = state.turnoId;
   if ($('#selCriterio').value !== state.criterio) $('#selCriterio').value = state.criterio;
@@ -606,7 +640,11 @@ function renderNovedad(n, rows) {
     placeholder: 'Describe la novedad...'
   });
   inTexto.addEventListener('change', () => updateNovedad(n.id, 'texto', inTexto.value));
-  tr.appendChild(td(inTexto, 'c-nov', 4));
+  const descripcion = el('div');
+  descripcion.appendChild(inTexto);
+  const firma = textoFirma(n);
+  if (firma) descripcion.appendChild(el('div', { class: 'nov-autor no-print', text: firma, title: firma }));
+  tr.appendChild(td(descripcion, 'c-nov', 4));
 
   /* montos */
   ['efectivo', 'transfer', 'tarjeta'].forEach((field) => {
@@ -958,15 +996,7 @@ function init() {
   bindEvents();
   setupPWA();
   initNube();
-
-  const saved = store.get(LS.csv, null);
-  if (saved && saved.text) {
-    try {
-      loadCSVText(saved.text, saved.name);
-    } catch (_) {
-      store.del(LS.csv);
-    }
-  }
+  arrancarAcceso();      // nada se abre hasta verificar quién está usando la app
 }
 
 /* --------------------------- sincronización nube --------------------------
@@ -975,12 +1005,16 @@ function init() {
    cambios locales pendientes, se adopta lo que esté en la nube.
    ------------------------------------------------------------------------- */
 
-const sync = { pendientes: {}, remoto: {}, timer: null };
+const sync = { pendientes: {}, remoto: {}, autorRemoto: {}, timer: null };
 
 const horaCorta = () =>
   new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 function setSyncEstado(clase, mensaje) {
+  if (state.desbloqueado && !Nube.conectado()) {   // la sesión se venció o se cerró
+    bloquearApp('Tu sesión terminó. Inicia sesión de nuevo para seguir trabajando.');
+    return;
+  }
   const info = $('#syncInfo');
   if (info) {
     info.textContent = mensaje;
@@ -1152,7 +1186,13 @@ function limpiarNovedad(n) {
     texto: String(n.texto || ''),
     efectivo: Math.abs(parseNum(n.efectivo)),
     transfer: Math.abs(parseNum(n.transfer)),
-    tarjeta: Math.abs(parseNum(n.tarjeta))
+    tarjeta: Math.abs(parseNum(n.tarjeta)),
+    autor: n.autor || null,
+    autorCorreo: n.autorCorreo || null,
+    creado: n.creado || null,
+    editadoPor: n.editadoPor || null,
+    editadoCorreo: n.editadoCorreo || null,
+    editado: n.editado || null
   };
 }
 
@@ -1177,9 +1217,10 @@ async function subirInforme(key) {
     titulo: state.titulos[key] || null,
     novedades: (state.novedades[key] || []).map(limpiarNovedad)
   });
-  if (fila) sync.remoto[key] = fila.updated_at;
+  if (fila) { sync.remoto[key] = fila.updated_at; sync.autorRemoto[key] = fila.updated_by; }
   delete sync.pendientes[key];
   store.set(LS.pend, sync.pendientes);
+  if (key === currentKey()) pintarUltimaModificacion();
 }
 
 async function subirPendientes() {
@@ -1211,6 +1252,7 @@ async function bajarInforme(key) {
       store.set(LS.nov, state.novedades);
       store.set(LS.titles, state.titulos);
       sync.remoto[key] = fila.updated_at;
+      sync.autorRemoto[key] = fila.updated_by;
       if (state.rows.length) render();
     }
     refrescarEstadoNube();
@@ -1239,7 +1281,7 @@ async function subirTurnos() {
 }
 
 async function sincronizarTodo() {
-  if (!Nube.conectado()) return;
+  if (!state.desbloqueado || !Nube.conectado()) return;
   if (!state.perfil) await cargarPerfil();
   if (!estaAutorizado()) {
     setSyncEstado('err', 'Tu cuenta no está habilitada para el informe');
@@ -1247,6 +1289,7 @@ async function sincronizarTodo() {
   }
   await subirPendientes();
   if (state.origen === 'archivo' && state.rows.length) await subirCierres(state.rows);
+  await cargarUsuariosMapa();
   await cargarFechasNube();
   await bajarTurnos();
   if (state.date) await bajarCierres(state.date);
@@ -1410,15 +1453,111 @@ function nombreUsuario() {
 const esAdmin = () => !!(state.perfil && state.perfil.rol === 'admin');
 const estaAutorizado = () => !!state.perfil;
 
+/** Confirma que la cuenta con sesión esté habilitada.
+    Devuelve 'ok', 'ok-offline', 'no-autorizado', 'sin-sesion' o 'sin-red'. */
 async function cargarPerfil() {
-  if (!Nube.conectado()) { state.perfil = null; return null; }
+  if (!Nube.conectado()) { state.perfil = null; return 'sin-sesion'; }
   try {
-    state.perfil = await Nube.miPerfil();
+    const perfil = await Nube.miPerfil();
+    if (!perfil) {
+      state.perfil = null;
+      store.del(LS.perfil);
+      return 'no-autorizado';
+    }
+    state.perfil = perfil;
+    store.set(LS.perfil, perfil);
+    return 'ok';
   } catch (_) {
+    if (!Nube.conectado()) { state.perfil = null; return 'sin-sesion'; }   // la sesión venció
+    // sin red: vale la última verificación de esta misma cuenta en este equipo
+    const guardado = store.get(LS.perfil, null);
+    const u = Nube.usuario();
+    if (guardado && u && guardado.user_id === u.id) { state.perfil = guardado; return 'ok-offline'; }
     state.perfil = null;
+    return 'sin-red';
   }
+}
+
+/** Mapa de usuarios para poner nombre a quien modificó cada turno. */
+async function cargarUsuariosMapa() {
+  try {
+    const lista = await Nube.leerUsuarios();
+    state.usuarios = {};
+    lista.forEach((u) => { state.usuarios[u.user_id] = u; });
+  } catch (_) { /* sin la lista se muestra el aviso genérico */ }
+}
+
+function pintarUltimaModificacion() {
+  const info = $('#infoModificacion');
+  if (!info) return;
+  const key = currentKey();
+  if (sync.pendientes[key]) {
+    info.textContent = 'Hay cambios de este turno pendientes por subir.';
+    return;
+  }
+  const cuando = sync.remoto[key];
+  if (!cuando) {
+    info.textContent = 'Este turno todavía no tiene novedades guardadas en línea.';
+    return;
+  }
+  const u = state.usuarios[sync.autorRemoto[key]];
+  const quien = u ? (u.nombre || u.correo) : 'usuario no identificado';
+  info.textContent = `Última modificación en línea: ${quien} · ${fechaHoraCorta(cuando)}`;
+}
+
+/* ------------------------------ acceso obligatorio ------------------------
+   Nadie trabaja sin sesión: así cada cambio queda con nombre propio.
+   ------------------------------------------------------------------------- */
+
+function mostrarGate(mensaje, esOk) {
+  state.desbloqueado = false;
+  document.body.classList.add('bloqueado');
+  cerrarModalNube();
+  $('#gate').hidden = false;
+  $('#gateCargando').hidden = true;
+  $('#nubeLogin').hidden = false;
+  mostrarErrorNube(mensaje || '', esOk);
+  setTimeout(() => {
+    const correo = $('#nubeCorreo');
+    (correo.value ? $('#nubeClave') : correo).focus();
+  }, 50);
+}
+
+function bloquearApp(mensaje, esOk) {
+  state.perfil = null;
+  state.usuarios = {};
+  state.fechasNube = {};
+  $('#nubeAdmin').hidden = true;
+  mostrarGate(mensaje, esOk);
+}
+
+async function desbloquearApp() {
+  state.desbloqueado = true;
+  document.body.classList.remove('bloqueado');
+  $('#gate').hidden = true;
   refrescarEstadoNube();
-  return state.perfil;
+
+  // los datos guardados en el equipo se abren solo con la persona identificada
+  const saved = store.get(LS.csv, null);
+  if (saved && saved.text && !state.rows.length) {
+    try { loadCSVText(saved.text, saved.name); } catch (_) { store.del(LS.csv); }
+  }
+  if (red.servidor) await sincronizarTodo();   // si aún no se confirmó, lo hará revisarRed
+}
+
+async function arrancarAcceso() {
+  $('#gateCargando').hidden = false;
+  $('#nubeLogin').hidden = true;
+  const estado = await cargarPerfil();
+  if (estado === 'ok' || estado === 'ok-offline') return desbloquearApp();
+  if (estado === 'no-autorizado') {
+    await Nube.cerrarSesion();
+    return mostrarGate('Tu cuenta no está habilitada para el informe. Pídele al administrador que te agregue.');
+  }
+  if (estado === 'sin-red') {
+    return mostrarGate('No hay conexión para verificar tu sesión. Conéctate a internet para entrar.');
+  }
+  mostrarGate('');
 }
 
 async function renderUsuarios() {
@@ -1477,20 +1616,14 @@ function mostrarErrorNube(msg, ok) {
 }
 
 function abrirModalNube() {
-  const conectado = Nube.conectado();
-  $('#nubeSesion').hidden = !conectado;
-  $('#nubeLogin').hidden = conectado;
-  if (conectado) {
-    const u = Nube.usuario();
-    $('#nubeEmail').textContent = (state.perfil && state.perfil.nombre)
-      ? `${state.perfil.nombre} (${u ? u.email : ''})`
-      : (u ? u.email : '');
-    $('#nubeNoAutorizado').hidden = estaAutorizado();
-    renderUsuarios();
-  } else {
-    mostrarErrorNube('');
-    setTimeout(() => $('#nubeCorreo').focus(), 50);
-  }
+  if (!state.desbloqueado) return;
+  const u = Nube.usuario();
+  $('#nubeSesion').hidden = false;
+  $('#nubeEmail').textContent = (state.perfil && state.perfil.nombre)
+    ? `${state.perfil.nombre} (${u ? u.email : ''})`
+    : (u ? u.email : '');
+  $('#nubeNoAutorizado').hidden = estaAutorizado();
+  renderUsuarios();
   $('#modalNube').hidden = false;
 }
 
@@ -1519,43 +1652,21 @@ function bindNube() {
     try {
       await Nube.iniciarSesion($('#nubeCorreo').value, $('#nubeClave').value);
       $('#nubeClave').value = '';
-      await cargarPerfil();
-      if (!estaAutorizado()) {
-        mostrarErrorNube('Tu cuenta existe, pero no está habilitada para el informe. '
-                       + 'Pídele al administrador que te agregue.');
+      const estado = await cargarPerfil();
+      if (estado !== 'ok') {
+        await Nube.cerrarSesion();
+        mostrarErrorNube(estado === 'no-autorizado'
+          ? 'Tu cuenta existe, pero no está habilitada para el informe. Pídele al administrador que te agregue.'
+          : 'No se pudo verificar tu cuenta. Revisa la conexión e inténtalo de nuevo.');
         return;
       }
-      cerrarModalNube();
       toast(`Bienvenido, ${nombreUsuario()}`);
-      refrescarEstadoNube();
-      await sincronizarTodo();
+      await desbloquearApp();
     } catch (err) {
-      mostrarErrorNube(err.message);
+      const sinRed = !navigator.onLine || err instanceof TypeError;
+      mostrarErrorNube(sinRed ? 'Sin conexión: necesitas internet para iniciar sesión.' : err.message);
     } finally {
       btn.disabled = false;
-    }
-  });
-
-  $('#btnCrearCuenta').addEventListener('click', async () => {
-    mostrarErrorNube('');
-    const correo = $('#nubeCorreo').value.trim();
-    const clave = $('#nubeClave').value;
-    if (!correo || clave.length < 6) {
-      mostrarErrorNube('Escribe el correo y una contraseña de al menos 6 caracteres.');
-      return;
-    }
-    try {
-      const r = await Nube.crearCuenta(correo, clave);
-      if (r.sesion) {
-        cerrarModalNube();
-        toast('Cuenta creada y sesión iniciada');
-        refrescarEstadoNube();
-        await sincronizarTodo();
-      } else {
-        mostrarErrorNube('Cuenta creada. Revisa tu correo para confirmarla y luego inicia sesión.', true);
-      }
-    } catch (err) {
-      mostrarErrorNube(err.message);
     }
   });
 
@@ -1571,15 +1682,21 @@ function bindNube() {
   });
 
   $('#btnSalir').addEventListener('click', async () => {
+    await subirPendientes();
+    const pend = Object.keys(sync.pendientes).length;
+    const avisos = [];
+    if (pend) {
+      avisos.push(`Hay ${pend} cambio(s) sin subir por falta de conexión. Quedan en este equipo `
+                + '(las novedades conservan tu nombre) y se suben cuando alguien entre con internet.');
+    }
+    if (!navigator.onLine || red.servidor === false) {
+      avisos.push('No hay conexión: nadie podrá volver a entrar en este equipo hasta que regrese internet.');
+    }
+    if (avisos.length && !confirm(avisos.join('\n\n') + '\n\n¿Cerrar sesión igual?')) return;
+
     await Nube.cerrarSesion();
-    cerrarModalNube();
-    state.fechasNube = {};
-    state.perfil = null;
-    $('#nubeAdmin').hidden = true;
-    $('#dzNube').hidden = true;
-    if (state.rows.length) buildControls();
-    toast('Sesión cerrada · los datos siguen guardados en este equipo');
-    refrescarEstadoNube();
+    store.del(LS.perfil);
+    bloquearApp('Sesión cerrada.', true);
   });
 
   window.addEventListener('online', () => { subirPendientes(); });

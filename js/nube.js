@@ -1,6 +1,6 @@
 /* =========================================================================
    Nube: sesión y sincronización con Supabase (REST directo, sin librerías).
-   Solo viajan las NOVEDADES y la configuración; el CSV nunca sale del equipo.
+   Viajan cierres, novedades, configuración y usuarios; siempre con sesión.
    ========================================================================= */
 'use strict';
 
@@ -73,19 +73,6 @@ const Nube = (function () {
     return guardarSesion(await res.json());
   }
 
-  async function crearCuenta(email, password) {
-    if (!configurada()) throw new Error('Falta configurar la conexión con Supabase.');
-    const res = await fetch(`${config.url}/auth/v1/signup`, {
-      method: 'POST',
-      headers: authHeaders(false),
-      body: JSON.stringify({ email: String(email).trim(), password })
-    });
-    if (!res.ok) throw new Error(await errorDe(res));
-    const data = await res.json();
-    if (data.access_token) { guardarSesion(data); return { sesion: true }; }
-    return { sesion: false }; // el proyecto exige confirmar el correo
-  }
-
   async function recuperarClave(email) {
     if (!configurada()) throw new Error('Falta configurar la conexión con Supabase.');
     const res = await fetch(`${config.url}/auth/v1/recover`, {
@@ -146,7 +133,7 @@ const Nube = (function () {
   async function leerInforme(fecha, turnoId) {
     const q = `/rest/v1/informe_novedades?fecha=eq.${encodeURIComponent(fecha)}`
             + `&turno_id=eq.${encodeURIComponent(turnoId)}`
-            + `&select=fecha,turno_id,turno_nombre,titulo,novedades,updated_at`;
+            + `&select=fecha,turno_id,turno_nombre,titulo,novedades,updated_at,updated_by`;
     const filas = await api(q, { method: 'GET' });
     return (filas && filas[0]) || null;
   }
@@ -270,7 +257,7 @@ const Nube = (function () {
     configurada, conectado, usuario,
     getConfig: () => Object.assign({}, config),
     setConfig,
-    iniciarSesion, crearCuenta, recuperarClave, cerrarSesion,
+    iniciarSesion, recuperarClave, cerrarSesion,
     leerInforme, guardarInforme, leerConfig, guardarConfig,
     guardarCierres, leerCierresDelDia, leerFechasConCierres,
     miPerfil, leerUsuarios, guardarUsuario,

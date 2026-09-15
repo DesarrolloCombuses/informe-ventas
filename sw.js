@@ -1,5 +1,5 @@
 /* Service worker: cache-first para el shell de la app. */
-const CACHE = 'idv-v7';
+const CACHE = 'idv-v8';
 const ASSETS = [
   './',
   './index.html',

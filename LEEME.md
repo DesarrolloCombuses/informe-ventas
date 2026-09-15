@@ -96,7 +96,7 @@ el archivo.
 
 ### Cómo se usa
 
-1. Botón **Nube** en la barra superior → iniciar sesión con correo y contraseña.
+1. Al abrir la aplicación aparece la pantalla de ingreso: correo y contraseña.
 2. Al cargar un CSV, sus cierres se suben automáticamente al servidor.
 3. Al abrir la aplicación en otro equipo e iniciar sesión, se abre sola la última fecha
    con cierres guardados, sin necesidad del archivo.
@@ -146,7 +146,6 @@ El selector de fecha muestra todas las fechas con cierres guardados en el servid
 número de turnos de cada una (*8 de septiembre de 2026 · 19 turnos*). Al elegir una, se traen
 sus cierres aunque el CSV no esté cargado en ese equipo.
 
-Sin iniciar sesión la aplicación funciona igual, guardando todo en el equipo.
 Si se pierde la conexión, los cambios quedan pendientes y se suben al reconectar.
 
 ### Regla ante cambios simultáneos
@@ -181,9 +180,8 @@ Cada escritura registra `updated_at` y `updated_by` mediante un trigger.
 
 ### Cuentas de usuario
 
-- Desde la app: botón **Crear cuenta** (si el proyecto exige confirmación por correo,
-  hay que confirmarla antes de entrar) y **Olvidé mi contraseña**.
-- Desde el panel: *Authentication → Users → Add user* en Supabase.
+Las cuentas solo las crea el administrador (la aplicación no tiene registro abierto).
+Ver *Agregar un usuario nuevo* más abajo.
 
 La URL y la clave publicable están en [`js/supabase-config.js`](js/supabase-config.js).
 Esa clave es pública por diseño; quien controla el acceso es RLS.
@@ -191,6 +189,22 @@ Esa clave es pública por diseño; quien controla el acceso es RLS.
 ---
 
 ## Usuarios y permisos
+
+### Acceso obligatorio
+
+La aplicación **no se puede usar sin iniciar sesión**. Al abrirla solo aparece la pantalla
+de ingreso; la barra, el informe, la carga de CSV y las novedades quedan ocultos y
+bloqueados hasta verificar que la cuenta esté habilitada. Así cada cambio tiene responsable:
+
+- Cada novedad guarda quién la registró y quién la editó por última vez, con fecha y hora
+  (se ve bajo la descripción, y no sale en la impresión).
+- Bajo el informe aparece *Última modificación en línea: nombre · fecha*.
+- En el servidor, cada fila de cierres, novedades y configuración registra `updated_by`.
+
+Si la sesión se vence mientras se trabaja, la aplicación se bloquea y pide ingresar de nuevo.
+Sin internet puede seguir trabajando quien ya había iniciado sesión en ese equipo, pero para
+entrar por primera vez hace falta conexión. Al cerrar sesión con cambios sin subir, la
+aplicación avisa antes de salir.
 
 Tener cuenta en el proyecto Supabase **no basta**: la cuenta debe estar en la tabla
 `informe_usuarios` y activa. Los usuarios de otras aplicaciones del mismo proyecto no ven

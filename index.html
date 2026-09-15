@@ -11,7 +11,38 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="css/styles.css">
 </head>
-<body>
+<body class="bloqueado">
+
+<section id="gate" class="gate no-print" aria-labelledby="gateTitulo">
+  <div class="gate-card">
+    <div class="gate-brand">
+      <span class="brand-mark">IDV</span>
+      <div>
+        <h1 id="gateTitulo">Informe Diario de Ventas</h1>
+        <p>Combuses · acceso solo con usuario autorizado</p>
+      </div>
+    </div>
+
+    <p id="gateCargando" class="gate-cargando">Verificando tu sesión...</p>
+
+    <form id="nubeLogin" class="gate-form" hidden>
+      <p class="modal-lead">Inicia sesión para trabajar.</p>
+      <p class="hint">Cada cierre y cada novedad quedan registrados con el nombre de quien los hizo.</p>
+      <label class="field">
+        <span>Correo</span>
+        <input type="email" id="nubeCorreo" autocomplete="username" required placeholder="usuario@combuses.com.co">
+      </label>
+      <label class="field">
+        <span>Contraseña</span>
+        <input type="password" id="nubeClave" autocomplete="current-password" required minlength="6">
+      </label>
+      <p id="nubeError" class="form-error" hidden></p>
+      <button type="submit" class="btn btn-primary gate-submit">Iniciar sesión</button>
+      <button type="button" id="btnOlvide" class="btn btn-ghost btn-sm">Olvidé mi contraseña</button>
+      <p class="hint">¿No tienes usuario? Pídeselo al administrador.</p>
+    </form>
+  </div>
+</section>
 
 <header class="topbar no-print">
   <div class="brand">
@@ -54,7 +85,7 @@
       <h2>Arrastra aquí el archivo CSV de turnos</h2>
       <p>o <button id="btnPick" class="linklike">selecciona el archivo</button> desde tu equipo.</p>
       <p class="dz-hint">Columnas esperadas: shift_id, Agente, N. de Ventas, Pasajeros, Inico Turno, Final Turno, Efectivo, Transferencia, Tarjeta</p>
-      <p class="dz-hint">¿Ya cargaste informes antes? Entra con <strong>Nube</strong> y se abren los cierres guardados en línea.</p>
+      <p class="dz-hint">Los cierres que ya cargó el equipo están guardados en línea.</p>
       <p id="dzNube" hidden><button id="btnAbrirNube" class="btn btn-primary">Abrir informes guardados en línea</button></p>
     </div>
   </section>
@@ -98,7 +129,7 @@
     </div>
     <div class="report-actions no-print">
       <button id="btnAddNov" class="btn btn-sm">+ Agregar novedad</button>
-      <span class="hint">Las novedades se guardan automáticamente por fecha y turno.</span>
+      <span class="hint" id="infoModificacion">Las novedades se guardan automáticamente por fecha y turno.</span>
     </div>
   </section>
 
@@ -108,13 +139,13 @@
 
 </main>
 
-<footer class="foot no-print">Funciona sin conexión · Los datos permanecen en este equipo</footer>
+<footer class="foot no-print">Cada cambio queda registrado con el nombre de quien lo hace · Funciona sin conexión</footer>
 
 
 <div id="modalNube" class="modal no-print" hidden>
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalNubeTitulo">
     <header class="modal-head">
-      <h2 id="modalNubeTitulo">Sincronización en la nube</h2>
+      <h2 id="modalNubeTitulo">Mi sesión</h2>
       <button id="btnCerrarModal" class="del-nov" type="button" title="Cerrar">&times;</button>
     </header>
 
@@ -137,26 +168,6 @@
       </div>
     </div>
 
-    <form id="nubeLogin" class="modal-body">
-      <p class="modal-lead">Inicia sesión para trabajar en línea.</p>
-      <p class="hint">Al entrar, los cierres de turno que cargues quedan guardados en el servidor junto con
-        las novedades, y se pueden consultar desde cualquier equipo.</p>
-      <label class="field">
-        <span>Correo</span>
-        <input type="email" id="nubeCorreo" autocomplete="username" required placeholder="usuario@empresa.com">
-      </label>
-      <label class="field">
-        <span>Contraseña</span>
-        <input type="password" id="nubeClave" autocomplete="current-password" required minlength="6">
-      </label>
-      <p id="nubeError" class="form-error" hidden></p>
-      <div class="modal-actions">
-        <button type="submit" class="btn btn-primary">Iniciar sesión</button>
-        <button type="button" id="btnCrearCuenta" class="btn">Crear cuenta</button>
-        <button type="button" id="btnOlvide" class="btn btn-ghost btn-sm">Olvidé mi contraseña</button>
-      </div>
-      <p class="hint">Sin iniciar sesión la aplicación funciona igual, pero todo queda solo en este equipo.</p>
-    </form>
   </div>
 </div>
 
