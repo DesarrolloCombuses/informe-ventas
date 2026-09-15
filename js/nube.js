@@ -133,7 +133,7 @@ const Nube = (function () {
   async function leerInforme(fecha, turnoId) {
     const q = `/rest/v1/informe_novedades?fecha=eq.${encodeURIComponent(fecha)}`
             + `&turno_id=eq.${encodeURIComponent(turnoId)}`
-            + `&select=fecha,turno_id,turno_nombre,titulo,novedades,updated_at,updated_by`;
+            + `&select=fecha,turno_id,turno_nombre,titulo,novedades,updated_at,updated_by,ubicacion`;
     const filas = await api(q, { method: 'GET' });
     return (filas && filas[0]) || null;
   }
@@ -154,11 +154,11 @@ const Nube = (function () {
     return (filas && filas[0]) || null;
   }
 
-  async function guardarConfig(clave, valor) {
+  async function guardarConfig(clave, valor, ubicacion) {
     const filas = await api('/rest/v1/informe_config?on_conflict=clave', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-      body: JSON.stringify([{ clave, valor }])
+      body: JSON.stringify([{ clave, valor, ubicacion: ubicacion || null }])
     });
     return (filas && filas[0]) || null;
   }
@@ -224,6 +224,33 @@ const Nube = (function () {
     return (filas && filas[0]) || null;
   }
 
+  /* ------------------------------- sedes --------------------------------- */
+
+  async function leerSedes() {
+    return (await api(
+      '/rest/v1/informe_sedes?select=id,nombre,lat,lon,radio_m,activa&activa=eq.true&order=nombre.asc',
+      { method: 'GET' })) || [];
+  }
+
+  /** Solo el administrador (lo impone RLS). */
+  async function crearSede(sede) {
+    const filas = await api('/rest/v1/informe_sedes', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify([sede])
+    });
+    return (filas && filas[0]) || null;
+  }
+
+  async function actualizarSede(id, cambios) {
+    const filas = await api(`/rest/v1/informe_sedes?id=eq.${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(cambios)
+    });
+    return (filas && filas[0]) || null;
+  }
+
   /* --------------------------- estado de la red -------------------------- */
 
   /** ¿Se alcanza el servidor? navigator.onLine solo confirma la red local. */
@@ -261,6 +288,7 @@ const Nube = (function () {
     leerInforme, guardarInforme, leerConfig, guardarConfig,
     guardarCierres, leerCierresDelDia, leerFechasConCierres,
     miPerfil, leerUsuarios, guardarUsuario,
+    leerSedes, crearSede, actualizarSede,
     hayServidor
   };
 })();

@@ -303,3 +303,17 @@ body:not(.bloqueado) > .gate{display:none !important}
   font-size:10.5px; color:#8390a8; margin-top:1px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
+
+/* ---------- ubicación ---------- */
+button.net{font-family:inherit; cursor:pointer}
+button.net:hover{filter:brightness(.97)}
+.ubic .net-dot{border-radius:50% 50% 50% 0; transform:rotate(-45deg)}   /* forma de pin */
+.ubic.net-on .net-dot{animation:none}
+
+.sede-nueva{display:grid; grid-template-columns:1fr 84px auto; gap:8px; align-items:center}
+.sede-nueva input,
+.user-row input[type=number]{
+  border:1px solid var(--line); border-radius:6px; padding:5px 8px; font:inherit; font-size:13px; min-width:0;
+}
+.sede-nueva input:focus,
+.user-row input[type=number]:focus{outline:none; border-color:var(--blue); box-shadow:0 0 0 2px #dce7ff}

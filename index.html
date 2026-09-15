@@ -59,6 +59,9 @@
     <button id="btnExcel" class="btn" disabled>Exportar Excel</button>
     <button id="btnCsv" class="btn" disabled>Exportar CSV</button>
     <button id="btnClear" class="btn btn-ghost" disabled>Limpiar</button>
+    <button id="ubicStatus" class="net ubic" type="button" title="Ubicación de este equipo">
+      <i class="net-dot"></i><span id="ubicText">Ubicación</span>
+    </button>
     <span id="netStatus" class="net" title="Estado de la conexión">
       <i class="net-dot"></i><span id="netText">Comprobando...</span>
     </span>
@@ -161,6 +164,19 @@
         <h3 class="modal-sub">Usuarios del informe</h3>
         <p class="hint">Escribe el nombre de cada persona para identificarla. Se guarda al salir del campo.</p>
         <div id="listaUsuarios" class="user-list"></div>
+      </div>
+
+      <div id="nubeSedes" hidden>
+        <h3 class="modal-sub">Sedes</h3>
+        <p class="hint">Estando en la sede, escribe su nombre y pulsa «Registrar esta sede». Cada cambio
+          quedará marcado como hecho dentro o fuera de una sede. Desde un celular la ubicación es más exacta.</p>
+        <div class="sede-nueva">
+          <input type="text" id="sedeNombre" placeholder="Nombre (ej. Taquilla aeropuerto)">
+          <input type="number" id="sedeRadio" min="20" max="5000" step="10" value="200" title="Radio en metros">
+          <button id="btnRegistrarSede" class="btn btn-sm btn-primary" type="button">Registrar esta sede</button>
+        </div>
+        <p id="sedeAviso" class="hint"></p>
+        <div id="listaSedes" class="user-list"></div>
       </div>
 
       <div class="modal-actions">

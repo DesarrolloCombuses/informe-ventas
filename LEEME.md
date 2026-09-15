@@ -165,6 +165,7 @@ y ya fue aplicado.
 | `informe_cierres` | Un cierre de turno por `shift_id`: agente, ventas, pasajeros, inicio, final y recaudos |
 | `informe_novedades` | Una fila por (fecha, turno): título y arreglo JSON de novedades |
 | `informe_config` | Configuración compartida; la clave `turnos` guarda los rangos horarios |
+| `informe_sedes` | Sedes registradas por el administrador: nombre, coordenadas y radio |
 
 La vista `informe_cierres_fechas` lista las fechas que ya tienen cierres cargados
 (con `security_invoker`, así que también respeta RLS).
@@ -187,6 +188,37 @@ La URL y la clave publicable están en [`js/supabase-config.js`](js/supabase-con
 Esa clave es pública por diseño; quien controla el acceso es RLS.
 
 ---
+
+## Ubicación de cada cambio
+
+Al iniciar sesión el navegador pide permiso para usar la ubicación. **No bloquea**: sirve para
+saber desde dónde se hizo cada cambio.
+
+- Se registra en cada carga de cierres, en cada novedad (al crearla y al editarla) y en cada
+  cambio de rangos de turno: coordenadas, precisión y si fue dentro de una sede.
+- En la barra superior se ve el estado del equipo: *En sede: nombre*, *Fuera de sede*,
+  *Ubicación imprecisa*, *Sin permiso de ubicación* o *Ubicación registrada* (si aún no hay sedes).
+- Bajo cada novedad y en *Última modificación en línea* aparece desde dónde se hizo.
+- Sin permiso, o con una precisión peor que el radio de la sede, se puede trabajar igual y el
+  cambio queda marcado (*sin permiso de ubicación* o *ubicación no confirmada*).
+
+### Sedes
+
+El administrador registra las sedes estando en ellas: botón con su nombre, sección **Sedes**,
+escribir el nombre y pulsar **Registrar esta sede**. Se puede ajustar el radio (200 m por
+defecto) y quitar sedes; al quitarlas se desactivan, así los registros anteriores conservan
+el nombre.
+
+Un celular ubica con GPS y es preciso; un computador se ubica por WiFi o por la conexión y puede
+errar por cientos de metros. Por eso conviene registrar las sedes desde un celular.
+
+La ubicación la reporta el navegador: sirve como registro y control, pero alguien con
+conocimientos técnicos podría falsearla.
+
+### Cargas de cierres
+
+Los cierres se suben solo cuando alguien carga un archivo nuevo. Reabrir la aplicación no vuelve
+a subir el último CSV guardado en el equipo, así no se sobrescribe quién ni desde dónde lo cargó.
 
 ## Usuarios y permisos
 

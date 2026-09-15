@@ -43,7 +43,9 @@ const LS = {
   sel:    'idv.seleccion',
   pend:   'idv.pendientes',
   libre:  'idv.rangolibre',
-  perfil: 'idv.perfil'
+  perfil: 'idv.perfil',
+  sedes:  'idv.sedes',
+  cierresPend: 'idv.cierrespendientes'
 };
 
 /* --------------------------------- estado -------------------------------- */
@@ -62,6 +64,7 @@ const state = {
   perfil: null,                    // ficha en informe_usuarios (null = no habilitado)
   usuarios: {},                    // { user_id: ficha } para mostrar quién modificó
   desbloqueado: false,             // true solo con una sesión verificada
+  sedes: [],                       // sedes activas (para clasificar la ubicación)
   libre: Object.assign({}, TURNO_LIBRE),
   sort: { key: null, dir: 1 }
 };
@@ -227,7 +230,7 @@ function hhmmToMinutes(hhmm) {
 
 /* ------------------------------ carga de datos ---------------------------- */
 
-function loadCSVText(text, fileName) {
+function loadCSVText(text, fileName, nuevo) {
   const grid = parseCSV(text);
   if (grid.length < 2) throw new Error('El archivo no contiene datos.');
 
@@ -272,7 +275,16 @@ function loadCSVText(text, fileName) {
   state.origen = 'archivo';
   mostrarInforme();
   bajarInforme(currentKey());
-  subirCierres(rows);
+
+  // Solo un archivo recién cargado se sube (y queda firmado con quién y dónde).
+  // Reabrir el CSV guardado en el equipo no vuelve a subir ni re-firma nada.
+  if (nuevo) store.set(LS.cierresPend, { ubicacion: ubicacionActual() });
+  const pendiente = store.get(LS.cierresPend, null);
+  if (pendiente) {
+    sync.cierresPorSubir = rows;
+    sync.ubicCierres = pendiente.ubicacion || null;
+    subirCierresPendientes();
+  }
 }
 
 function readFile(file) {
@@ -285,7 +297,7 @@ function readFile(file) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      loadCSVText(String(reader.result), file.name);
+      loadCSVText(String(reader.result), file.name, true);
       toast('Archivo cargado correctamente');
     } catch (err) {
       toast(err.message || 'No se pudo leer el archivo', true);
@@ -408,8 +420,9 @@ function firmaAutor(nueva) {
   const quien = nombreUsuario() || (u ? u.email : '');
   const correo = u ? u.email : '';
   const ahora = new Date().toISOString();
-  const firma = { editadoPor: quien, editadoCorreo: correo, editado: ahora };
-  if (nueva) Object.assign(firma, { autor: quien, autorCorreo: correo, creado: ahora });
+  const ubicacion = ubicacionActual();
+  const firma = { editadoPor: quien, editadoCorreo: correo, editado: ahora, ubicacionEditado: ubicacion };
+  if (nueva) Object.assign(firma, { autor: quien, autorCorreo: correo, creado: ahora, ubicacionCreado: ubicacion });
   return firma;
 }
 
@@ -420,9 +433,9 @@ const fechaHoraCorta = (iso) => (iso
 
 function textoFirma(n) {
   if (!n.autor) return '';
-  let t = `Registró ${n.autor} · ${fechaHoraCorta(n.creado)}`;
+  let t = `Registró ${n.autor} · ${fechaHoraCorta(n.creado)}` + sufijoUbicacion(n.ubicacionCreado);
   if (n.editadoPor && n.editado && n.editado !== n.creado) {
-    t += ` · editó ${n.editadoPor} · ${fechaHoraCorta(n.editado)}`;
+    t += ` · editó ${n.editadoPor} · ${fechaHoraCorta(n.editado)}` + sufijoUbicacion(n.ubicacionEditado);
   }
   return t;
 }
@@ -992,6 +1005,7 @@ function init() {
   state.libre = Object.assign({}, TURNO_LIBRE, store.get(LS.libre, {}));
   state.novedades = store.get(LS.nov, {});
   state.titulos = store.get(LS.titles, {});
+  state.sedes = store.get(LS.sedes, []);
 
   bindEvents();
   setupPWA();
@@ -1005,7 +1019,10 @@ function init() {
    cambios locales pendientes, se adopta lo que esté en la nube.
    ------------------------------------------------------------------------- */
 
-const sync = { pendientes: {}, remoto: {}, autorRemoto: {}, timer: null };
+const sync = {
+  pendientes: {}, remoto: {}, autorRemoto: {}, ubicRemoto: {}, timer: null,
+  cierresPorSubir: null, ubicCierres: null
+};
 
 const horaCorta = () =>
   new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -1192,7 +1209,9 @@ function limpiarNovedad(n) {
     creado: n.creado || null,
     editadoPor: n.editadoPor || null,
     editadoCorreo: n.editadoCorreo || null,
-    editado: n.editado || null
+    editado: n.editado || null,
+    ubicacionCreado: n.ubicacionCreado || null,
+    ubicacionEditado: n.ubicacionEditado || null
   };
 }
 
@@ -1215,9 +1234,14 @@ async function subirInforme(key) {
     turno_id: turnoId,
     turno_nombre: turno ? turno.name : null,
     titulo: state.titulos[key] || null,
-    novedades: (state.novedades[key] || []).map(limpiarNovedad)
+    novedades: (state.novedades[key] || []).map(limpiarNovedad),
+    ubicacion: ubicacionActual()
   });
-  if (fila) { sync.remoto[key] = fila.updated_at; sync.autorRemoto[key] = fila.updated_by; }
+  if (fila) {
+    sync.remoto[key] = fila.updated_at;
+    sync.autorRemoto[key] = fila.updated_by;
+    sync.ubicRemoto[key] = fila.ubicacion;
+  }
   delete sync.pendientes[key];
   store.set(LS.pend, sync.pendientes);
   if (key === currentKey()) pintarUltimaModificacion();
@@ -1253,6 +1277,7 @@ async function bajarInforme(key) {
       store.set(LS.titles, state.titulos);
       sync.remoto[key] = fila.updated_at;
       sync.autorRemoto[key] = fila.updated_by;
+      sync.ubicRemoto[key] = fila.ubicacion;
       if (state.rows.length) render();
     }
     refrescarEstadoNube();
@@ -1276,7 +1301,7 @@ async function bajarTurnos() {
 
 async function subirTurnos() {
   if (!Nube.conectado()) return;
-  try { await Nube.guardarConfig('turnos', state.turnos); }
+  try { await Nube.guardarConfig('turnos', state.turnos, ubicacionActual()); }
   catch (err) { setSyncEstado('err', err.message || 'No se pudo guardar la configuración'); }
 }
 
@@ -1288,8 +1313,9 @@ async function sincronizarTodo() {
     return;
   }
   await subirPendientes();
-  if (state.origen === 'archivo' && state.rows.length) await subirCierres(state.rows);
+  await subirCierresPendientes();
   await cargarUsuariosMapa();
+  await cargarSedes();
   await cargarFechasNube();
   await bajarTurnos();
   if (state.date) await bajarCierres(state.date);
@@ -1352,9 +1378,10 @@ function fechaDesdeISO(txt) {
 }
 
 /** Sube al servidor los cierres que se acaban de leer del CSV. */
-async function subirCierres(filas) {
-  if (!Nube.conectado() || !filas.length) return;
+async function subirCierres(filas, ubicacion) {
+  if (!Nube.conectado() || !filas.length) return false;
   setSyncEstado('', `Subiendo ${filas.length} cierres...`);
+  const donde = ubicacion || ubicacionActual();
   try {
     const payload = filas.map((r) => ({
       shift_id: r.shift || `${r.agente}_${fechaISOLocal(r.inicio)}`,
@@ -1366,13 +1393,28 @@ async function subirCierres(filas) {
       efectivo: r.efectivo || 0,
       transferencia: r.transfer || 0,
       tarjeta: r.tarjeta || 0,
-      archivo: state.fileName || null
+      archivo: state.fileName || null,
+      ubicacion: donde
     }));
     const n = await Nube.guardarCierres(payload);
     toast(`${n} cierres guardados en línea`);
     refrescarEstadoNube();
+    return true;
   } catch (err) {
     setSyncEstado('err', err.message || 'No se pudieron subir los cierres');
+    return false;
+  }
+}
+
+/** Sube el último archivo cargado si quedó pendiente (por ejemplo, sin internet). */
+async function subirCierresPendientes() {
+  if (!sync.cierresPorSubir || !sync.cierresPorSubir.length) return;
+  if (!state.desbloqueado || !Nube.conectado()) return;
+  const ok = await subirCierres(sync.cierresPorSubir, sync.ubicCierres);
+  if (ok) {
+    sync.cierresPorSubir = null;
+    sync.ubicCierres = null;
+    store.del(LS.cierresPend);
   }
 }
 
@@ -1502,7 +1544,8 @@ function pintarUltimaModificacion() {
   }
   const u = state.usuarios[sync.autorRemoto[key]];
   const quien = u ? (u.nombre || u.correo) : 'usuario no identificado';
-  info.textContent = `Última modificación en línea: ${quien} · ${fechaHoraCorta(cuando)}`;
+  info.textContent = `Última modificación en línea: ${quien} · ${fechaHoraCorta(cuando)}`
+    + sufijoUbicacion(sync.ubicRemoto[key]);
 }
 
 /* ------------------------------ acceso obligatorio ------------------------
@@ -1511,6 +1554,7 @@ function pintarUltimaModificacion() {
 
 function mostrarGate(mensaje, esOk) {
   state.desbloqueado = false;
+  detenerUbicacion();
   document.body.classList.add('bloqueado');
   cerrarModalNube();
   $('#gate').hidden = false;
@@ -1528,6 +1572,7 @@ function bloquearApp(mensaje, esOk) {
   state.usuarios = {};
   state.fechasNube = {};
   $('#nubeAdmin').hidden = true;
+  $('#nubeSedes').hidden = true;
   mostrarGate(mensaje, esOk);
 }
 
@@ -1536,6 +1581,7 @@ async function desbloquearApp() {
   document.body.classList.remove('bloqueado');
   $('#gate').hidden = true;
   refrescarEstadoNube();
+  iniciarUbicacion();   // el navegador pide permiso; si se niega, se trabaja igual y queda marcado
 
   // los datos guardados en el equipo se abren solo con la persona identificada
   const saved = store.get(LS.csv, null);
@@ -1606,6 +1652,233 @@ async function renderUsuarios() {
   });
 }
 
+/* ------------------------------- ubicación --------------------------------
+   Solo se registra, no se bloquea: cada cambio guarda desde dónde se hizo y
+   si fue dentro de una sede. Sin permiso o con mala precisión se trabaja
+   igual, pero el cambio queda marcado.
+   ------------------------------------------------------------------------- */
+
+const ubic = { pos: null, permiso: 'pendiente', vigia: null, error: '' };
+
+function distanciaM(lat1, lon1, lat2, lon2) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
+  const a = Math.sin(dLat / 2) ** 2
+          + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+const distanciaTexto = (m) => (m == null ? '?'
+  : m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1).replace('.', ',')} km`);
+
+/** Foto de la ubicación en este instante, clasificada contra las sedes. */
+function ubicacionActual() {
+  const r = { estado: '', lat: null, lon: null, precision_m: null, capturada: null,
+              sede: null, sede_id: null, distancia_m: null };
+  if (!ubic.pos) {
+    r.estado = ubic.permiso === 'denegado' ? 'sin-permiso' : 'no-disponible';
+    return r;
+  }
+  const { latitude, longitude, accuracy } = ubic.pos.coords;
+  r.lat = +latitude.toFixed(6);
+  r.lon = +longitude.toFixed(6);
+  r.precision_m = Math.round(accuracy);
+  r.capturada = new Date(ubic.pos.timestamp).toISOString();
+
+  const sedes = (state.sedes || []).filter((s) => s.activa !== false);
+  if (!sedes.length) { r.estado = 'sin-sedes'; return r; }
+
+  // la sede cuyo borde está más cerca
+  let cerca = null;
+  sedes.forEach((s) => {
+    const d = distanciaM(latitude, longitude, s.lat, s.lon);
+    if (!cerca || d - s.radio_m < cerca.d - cerca.s.radio_m) cerca = { s, d };
+  });
+  r.sede = cerca.s.nombre;
+  r.sede_id = cerca.s.id;
+  r.distancia_m = Math.round(cerca.d);
+
+  if (cerca.d - accuracy > cerca.s.radio_m) r.estado = 'fuera-de-sede';       // afuera aun con el error
+  else if (accuracy > cerca.s.radio_m) r.estado = 'no-confirmada';            // demasiado imprecisa
+  else r.estado = cerca.d <= cerca.s.radio_m ? 'en-sede' : 'fuera-de-sede';
+  return r;
+}
+
+function etiquetaUbicacion(u) {
+  if (!u || !u.estado) return '';
+  switch (u.estado) {
+    case 'en-sede':       return `en ${u.sede}`;
+    case 'fuera-de-sede': return u.sede ? `fuera de sede (a ${distanciaTexto(u.distancia_m)} de ${u.sede})` : 'fuera de sede';
+    case 'no-confirmada': return `ubicación no confirmada (±${distanciaTexto(u.precision_m)})`;
+    case 'sin-permiso':   return 'sin permiso de ubicación';
+    case 'sin-sedes':     return `ubicación ${u.lat}, ${u.lon}`;
+    default:              return 'ubicación no disponible';
+  }
+}
+
+const sufijoUbicacion = (u) => (u && u.estado ? ` · ${etiquetaUbicacion(u)}` : '');
+
+function iniciarUbicacion() {
+  if (!('geolocation' in navigator)) { ubic.permiso = 'no-soportado'; pintarUbicacion(); return; }
+  if (ubic.vigia !== null) return;
+  ubic.permiso = 'pendiente';
+  pintarUbicacion();
+  ubic.vigia = navigator.geolocation.watchPosition(
+    (pos) => { ubic.pos = pos; ubic.permiso = 'concedido'; ubic.error = ''; pintarUbicacion(); },
+    (err) => {
+      const yaNegado = ubic.permiso === 'denegado';
+      ubic.permiso = err.code === 1 ? 'denegado' : (ubic.pos ? 'concedido' : 'error');
+      ubic.error = err.message || '';
+      pintarUbicacion();
+      if (err.code === 1 && !yaNegado) {
+        toast('Sin permiso de ubicación: puedes trabajar, pero tus cambios quedarán marcados.', true);
+      }
+    },
+    { enableHighAccuracy: true, maximumAge: 30000, timeout: 20000 }
+  );
+}
+
+function detenerUbicacion() {
+  if (ubic.vigia !== null && 'geolocation' in navigator) navigator.geolocation.clearWatch(ubic.vigia);
+  ubic.vigia = null;
+  ubic.pos = null;
+  ubic.permiso = 'pendiente';
+}
+
+function pintarUbicacion() {
+  const chip = $('#ubicStatus');
+  const txt = $('#ubicText');
+  if (!chip || !txt) return;
+
+  let clase = '', texto, detalle;
+  if (!ubic.pos && ubic.permiso === 'pendiente') {
+    texto = 'Buscando ubicación...';
+    detalle = 'Esperando el permiso o la señal de ubicación del equipo.';
+  } else {
+    const u = ubicacionActual();
+    const prec = `precisión ±${distanciaTexto(u.precision_m)}`;
+    switch (u.estado) {
+      case 'en-sede':
+        clase = 'net-on'; texto = `En sede: ${u.sede}`;
+        detalle = `A ${distanciaTexto(u.distancia_m)} del punto de la sede · ${prec}`;
+        break;
+      case 'fuera-de-sede':
+        clase = 'net-warn'; texto = 'Fuera de sede';
+        detalle = `A ${distanciaTexto(u.distancia_m)} de ${u.sede} · ${prec} · los cambios quedan marcados`;
+        break;
+      case 'no-confirmada':
+        clase = 'net-warn'; texto = 'Ubicación imprecisa';
+        detalle = `Precisión ±${distanciaTexto(u.precision_m)}, mayor que el radio de ${u.sede} · los cambios quedan como "ubicación no confirmada"`;
+        break;
+      case 'sin-sedes':
+        texto = 'Ubicación registrada';
+        detalle = `${u.lat}, ${u.lon} · ${prec} · todavía no hay sedes registradas`;
+        break;
+      case 'sin-permiso':
+        clase = 'net-off'; texto = 'Sin permiso de ubicación';
+        detalle = 'Actívalo en el candado de la barra de direcciones. Mientras tanto los cambios quedan marcados.';
+        break;
+      default:
+        clase = 'net-off'; texto = 'Ubicación no disponible';
+        detalle = (ubic.error ? ubic.error + '. ' : '') + 'Pulsa para reintentar.';
+    }
+  }
+  chip.className = 'net ubic' + (clase ? ' ' + clase : '');
+  txt.textContent = texto;
+  chip.title = detalle;
+}
+
+async function cargarSedes() {
+  if (!Nube.conectado()) return;
+  try {
+    state.sedes = await Nube.leerSedes();
+    store.set(LS.sedes, state.sedes);
+    pintarUbicacion();
+  } catch (_) { /* se usan las sedes guardadas en el equipo */ }
+}
+
+async function editarSede(sede, cambios) {
+  try {
+    await Nube.actualizarSede(sede.id, cambios);
+    await cargarSedes();
+    toast('Sede actualizada');
+  } catch (err) {
+    toast(err.message || 'No se pudo guardar la sede', true);
+  }
+  renderSedes();
+}
+
+async function renderSedes() {
+  const panel = $('#nubeSedes');
+  if (!esAdmin()) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const caja = $('#listaSedes');
+  caja.textContent = 'Cargando...';
+  await cargarSedes();
+  caja.textContent = '';
+  if (!state.sedes.length) {
+    caja.appendChild(el('p', { class: 'hint', text: 'Todavía no hay sedes registradas.' }));
+    return;
+  }
+  state.sedes.forEach((s) => {
+    const fila = el('div', { class: 'user-row' });
+    const nombre = el('input', { type: 'text', value: s.nombre, title: `${s.lat}, ${s.lon}` });
+    nombre.addEventListener('change', () => editarSede(s, { nombre: nombre.value.trim() || s.nombre }));
+    const radio = el('input', {
+      type: 'number', min: '20', max: '5000', step: '10', value: String(s.radio_m), title: 'Radio en metros'
+    });
+    radio.addEventListener('change', () =>
+      editarSede(s, { radio_m: Math.min(5000, Math.max(20, Math.round(+radio.value || s.radio_m))) }));
+    const quitar = el('button', { class: 'btn btn-ghost btn-sm', type: 'button', text: 'Quitar' });
+    quitar.addEventListener('click', () => {
+      if (!confirm(`¿Quitar la sede "${s.nombre}"? Los registros anteriores conservan su nombre.`)) return;
+      editarSede(s, { activa: false });
+    });
+    fila.appendChild(nombre);
+    fila.appendChild(radio);
+    fila.appendChild(quitar);
+    caja.appendChild(fila);
+  });
+}
+
+async function registrarSede() {
+  const aviso = $('#sedeAviso');
+  const nombre = $('#sedeNombre').value.trim();
+  const radio = Math.min(5000, Math.max(20, Math.round(+$('#sedeRadio').value || 200)));
+  if (!nombre) { aviso.textContent = 'Escribe el nombre de la sede.'; return; }
+  if (!('geolocation' in navigator)) { aviso.textContent = 'Este navegador no permite obtener la ubicación.'; return; }
+
+  const btn = $('#btnRegistrarSede');
+  btn.disabled = true;
+  aviso.textContent = 'Obteniendo la ubicación de este equipo...';
+  try {
+    const pos = await new Promise((ok, fallo) => navigator.geolocation.getCurrentPosition(
+      ok, fallo, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }));
+    const precision = Math.round(pos.coords.accuracy);
+    if (precision > radio && !confirm(
+      `La ubicación tiene una precisión de ±${distanciaTexto(precision)}, mayor que el radio de ${distanciaTexto(radio)}.\n\n`
+      + 'En computadores es normal. Para marcar la sede con exactitud, regístrala desde un celular estando allí.\n\n'
+      + '¿Registrar igual?')) {
+      aviso.textContent = 'Registro cancelado.';
+      return;
+    }
+    await Nube.crearSede({
+      nombre, radio_m: radio,
+      lat: +pos.coords.latitude.toFixed(6),
+      lon: +pos.coords.longitude.toFixed(6)
+    });
+    $('#sedeNombre').value = '';
+    aviso.textContent = `Sede "${nombre}" registrada (precisión ±${distanciaTexto(precision)}).`;
+    await renderSedes();
+  } catch (err) {
+    aviso.textContent = err && err.code === 1
+      ? 'No hay permiso de ubicación: actívalo en el candado de la barra de direcciones.'
+      : (err && err.message) || 'No se pudo obtener la ubicación.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 /* ------------------------------ modal de nube ----------------------------- */
 
 function mostrarErrorNube(msg, ok) {
@@ -1624,6 +1897,7 @@ function abrirModalNube() {
     : (u ? u.email : '');
   $('#nubeNoAutorizado').hidden = estaAutorizado();
   renderUsuarios();
+  renderSedes();
   $('#modalNube').hidden = false;
 }
 
@@ -1631,6 +1905,15 @@ const cerrarModalNube = () => { $('#modalNube').hidden = true; };
 
 function bindNube() {
   $('#btnNube').addEventListener('click', abrirModalNube);
+  $('#btnRegistrarSede').addEventListener('click', registrarSede);
+  $('#ubicStatus').addEventListener('click', () => {
+    if (ubic.permiso === 'denegado') {
+      toast('La ubicación está bloqueada: actívala en el candado de la barra de direcciones y recarga.', true);
+      return;
+    }
+    detenerUbicacion();
+    iniciarUbicacion();
+  });
   $('#btnAbrirNube').addEventListener('click', async () => {
     if (!Nube.conectado()) { abrirModalNube(); return; }
     await abrirUltimaFecha();
