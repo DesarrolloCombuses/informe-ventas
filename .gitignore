@@ -1,0 +1,11 @@
+# Datos reales de recaudo: nunca al repositorio
+data/
+*.csv
+
+# Estado local del CLI de Supabase (URL del pooler, proyecto vinculado)
+supabase/.temp/
+supabase/.branches/
+
+# Sistema
+Thumbs.db
+.DS_Store

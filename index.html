@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Informe Diario de Ventas</title>
+<meta name="description" content="Genera el informe diario de ventas por turno a partir del CSV de turnos.">
+<meta name="theme-color" content="#1e40af">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header class="topbar no-print">
+  <div class="brand">
+    <span class="brand-mark">IDV</span>
+    <div>
+      <h1>Informe Diario de Ventas</h1>
+      <p id="fileInfo">Ningún archivo cargado</p>
+      <p id="syncInfo" class="sync-info">Sin sesión · los datos quedan solo en este equipo</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button id="btnLoad" class="btn btn-primary">Cargar CSV</button>
+    <button id="btnPrint" class="btn" disabled>Imprimir / PDF</button>
+    <button id="btnExcel" class="btn" disabled>Exportar Excel</button>
+    <button id="btnCsv" class="btn" disabled>Exportar CSV</button>
+    <button id="btnClear" class="btn btn-ghost" disabled>Limpiar</button>
+    <span id="netStatus" class="net" title="Estado de la conexión">
+      <i class="net-dot"></i><span id="netText">Comprobando...</span>
+    </span>
+    <button id="btnNube" class="btn btn-ghost">Nube</button>
+    <button id="btnInstall" class="btn btn-ghost" hidden>Instalar app</button>
+  </div>
+  <input type="file" id="fileInput" accept=".csv,text/csv" hidden>
+</header>
+
+<div id="offlineBar" class="offbar no-print" hidden role="status" aria-live="polite">
+  <span class="offbar-icon" aria-hidden="true">!</span>
+  <div class="offbar-text">
+    <strong id="offbarTitulo">Trabajando sin internet</strong>
+    <span id="offbarDetalle">Lo que registres se guarda en este equipo y se sube solo cuando vuelva la conexión.</span>
+  </div>
+  <button id="btnReintentar" class="btn btn-sm">Reintentar</button>
+</div>
+
+<main class="wrap">
+
+  <section id="dropzone" class="dropzone no-print">
+    <div class="dz-inner">
+      <div class="dz-icon">CSV</div>
+      <h2>Arrastra aquí el archivo CSV de turnos</h2>
+      <p>o <button id="btnPick" class="linklike">selecciona el archivo</button> desde tu equipo.</p>
+      <p class="dz-hint">Columnas esperadas: shift_id, Agente, N. de Ventas, Pasajeros, Inico Turno, Final Turno, Efectivo, Transferencia, Tarjeta</p>
+      <p class="dz-hint">¿Ya cargaste informes antes? Entra con <strong>Nube</strong> y se abren los cierres guardados en línea.</p>
+      <p id="dzNube" hidden><button id="btnAbrirNube" class="btn btn-primary">Abrir informes guardados en línea</button></p>
+    </div>
+  </section>
+
+  <section id="controls" class="panel no-print" hidden>
+    <div class="ctrl-grid">
+      <label class="field">
+        <span>Fecha del informe</span>
+        <select id="selDate"></select>
+      </label>
+      <label class="field">
+        <span>Turno</span>
+        <select id="selShift"></select>
+      </label>
+      <label class="field">
+        <span>Filtrar por</span>
+        <select id="selCriterio"></select>
+      </label>
+      <label class="field field-hora">
+        <span>Desde</span>
+        <input type="time" id="shiftFrom">
+      </label>
+      <label class="field field-hora">
+        <span>Hasta</span>
+        <input type="time" id="shiftTo">
+      </label>
+      <label class="field field-grow">
+        <span>Título del informe</span>
+        <input type="text" id="reportTitle" placeholder="INFORME DIARIO DE VENTAS...">
+      </label>
+      <button id="btnResetTitle" class="btn btn-ghost btn-sm" title="Volver al título automático">Auto</button>
+    </div>
+    <div class="ctrl-note" id="ctrlNote"></div>
+  </section>
+
+  <section id="summary" class="kpis no-print" hidden></section>
+
+  <section id="reportWrap" class="report-wrap" hidden>
+    <div class="table-scroll">
+      <table id="report" class="report"></table>
+    </div>
+    <div class="report-actions no-print">
+      <button id="btnAddNov" class="btn btn-sm">+ Agregar novedad</button>
+      <span class="hint">Las novedades se guardan automáticamente por fecha y turno.</span>
+    </div>
+  </section>
+
+  <section id="empty" class="empty-state" hidden>
+    <p>No hay turnos que coincidan con la fecha y el rango horario seleccionados.</p>
+  </section>
+
+</main>
+
+<footer class="foot no-print">Funciona sin conexión · Los datos permanecen en este equipo</footer>
+
+
+<div id="modalNube" class="modal no-print" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalNubeTitulo">
+    <header class="modal-head">
+      <h2 id="modalNubeTitulo">Sincronización en la nube</h2>
+      <button id="btnCerrarModal" class="del-nov" type="button" title="Cerrar">&times;</button>
+    </header>
+
+    <div id="nubeSesion" class="modal-body" hidden>
+      <p class="modal-lead">Sesión iniciada como <strong id="nubeEmail"></strong>.</p>
+      <p class="hint">Los cierres de turno, las novedades y los rangos quedan guardados en línea:
+        al iniciar sesión en cualquier equipo aparece todo el histórico, sin volver a cargar el CSV.</p>
+      <div id="nubeNoAutorizado" class="form-error" hidden>
+        Tu cuenta no está habilitada para el informe. Pídele al administrador que te agregue.
+      </div>
+
+      <div id="nubeAdmin" hidden>
+        <h3 class="modal-sub">Usuarios del informe</h3>
+        <p class="hint">Escribe el nombre de cada persona para identificarla. Se guarda al salir del campo.</p>
+        <div id="listaUsuarios" class="user-list"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="btnSalir" class="btn">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <form id="nubeLogin" class="modal-body">
+      <p class="modal-lead">Inicia sesión para trabajar en línea.</p>
+      <p class="hint">Al entrar, los cierres de turno que cargues quedan guardados en el servidor junto con
+        las novedades, y se pueden consultar desde cualquier equipo.</p>
+      <label class="field">
+        <span>Correo</span>
+        <input type="email" id="nubeCorreo" autocomplete="username" required placeholder="usuario@empresa.com">
+      </label>
+      <label class="field">
+        <span>Contraseña</span>
+        <input type="password" id="nubeClave" autocomplete="current-password" required minlength="6">
+      </label>
+      <p id="nubeError" class="form-error" hidden></p>
+      <div class="modal-actions">
+        <button type="submit" class="btn btn-primary">Iniciar sesión</button>
+        <button type="button" id="btnCrearCuenta" class="btn">Crear cuenta</button>
+        <button type="button" id="btnOlvide" class="btn btn-ghost btn-sm">Olvidé mi contraseña</button>
+      </div>
+      <p class="hint">Sin iniciar sesión la aplicación funciona igual, pero todo queda solo en este equipo.</p>
+    </form>
+  </div>
+</div>
+
+<script src="js/supabase-config.js"></script>
+<script src="js/nube.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
