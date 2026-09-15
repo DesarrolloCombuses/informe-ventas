@@ -18,10 +18,21 @@ const MES_CORTO = {
   dic:11, diciembre:11
 };
 
+/* Rangos del informe según el protocolo de cierre. Son acumulados desde la
+   medianoche: AM cierra la caja de Almacentro, PM recibe las cajas de la
+   mañana y NOCHE descarga el informe de las 24 horas del día. */
 const TURNOS_DEFECTO = [
-  { id: 'noche', name: 'TURNO NOCHE', from: '00:00', to: '11:59' },
-  { id: 'tarde', name: 'TURNO TARDE', from: '12:00', to: '23:59' }
+  { id: 'am',    name: 'TURNO AM',    from: '00:00', to: '06:15' },
+  { id: 'pm',    name: 'TURNO PM',    from: '00:00', to: '15:15' },
+  { id: 'noche', name: 'TURNO NOCHE', from: '00:00', to: '23:59' }
 ];
+
+/** ¿La lista guardada es la de los turnos vigentes? Si no, se reemplaza. */
+function turnosVigentes(lista) {
+  return Array.isArray(lista)
+    && lista.length === TURNOS_DEFECTO.length
+    && TURNOS_DEFECTO.every((t) => lista.some((x) => x && x.id === t.id));
+}
 
 /* Rango horario escrito a mano; no altera los turnos guardados. */
 const TURNO_LIBRE = { id: '__libre', name: 'PERSONALIZADO', from: '06:00', to: '14:00' };
@@ -38,6 +49,8 @@ const CRITERIOS = [
 const LS = {
   csv:    'idv.csv',
   nov:    'idv.novedades',
+  consig: 'idv.consignaciones',
+  deduc:  'idv.deducciones',
   turnos: 'idv.turnos',
   titles: 'idv.titulos',
   sel:    'idv.seleccion',
@@ -55,6 +68,8 @@ const state = {
   rows: [],          // todos los registros del CSV
   turnos: [],
   novedades: {},     // { "YYYY-MM-DD|turnoId": [novedad] }
+  consignaciones: {},// { "YYYY-MM-DD|turnoId": [consignacion] }
+  deducciones: {},   // { "YYYY-MM-DD|turnoId": [deduccion] }
   titulos: {},       // { "YYYY-MM-DD|turnoId": "titulo personalizado" }
   date: '',
   turnoId: '',
@@ -472,6 +487,53 @@ function deleteNovedad(id) {
 /** Signo aplicado según la acción: RESTAR resta, SUMAR suma. */
 const signo = (nov) => (nov.accion === 'SUMAR' ? 1 : -1);
 
+/* ------------------------------ cierre de caja ----------------------------
+   Consignaciones: lo que se llevó al banco. Deducciones: lo que salió del
+   efectivo por otro motivo. Las dos bajan el efectivo, por eso el informe
+   cierra con el EFECTIVO A ENTREGAR.
+   ------------------------------------------------------------------------- */
+
+const cajaActual = (tipo) => state[tipo][currentKey()] || [];
+
+const sumaCaja = (lista) => lista.reduce((a, x) => a + Math.abs(parseNum(x.valor)), 0);
+
+function guardarCaja(tipo, list) {
+  const key = currentKey();
+  if (list.length) state[tipo][key] = list;
+  else delete state[tipo][key];
+  store.set(tipo === 'consignaciones' ? LS.consig : LS.deduc, state[tipo]);
+  marcarPendiente(key);
+}
+
+function addCaja(tipo) {
+  const campos = tipo === 'consignaciones'
+    ? { banco: '', comprobante: '', texto: '', valor: 0 }
+    : { texto: '', valor: 0 };
+  const list = cajaActual(tipo).slice();
+  list.push(Object.assign(
+    { id: 'c' + Date.now() + Math.random().toString(36).slice(2, 6) },
+    campos, firmaAutor(true)));
+  guardarCaja(tipo, list);
+  render();
+  const inputs = document.querySelectorAll(`.r-${tipo} .caja-foco`);
+  if (inputs.length) inputs[inputs.length - 1].focus();
+}
+
+function updateCaja(tipo, id, field, value) {
+  let cambio = false;
+  const list = cajaActual(tipo).map((x) => {
+    if (x.id !== id || x[field] === value) return x;   // salir del campo sin cambiar no firma
+    cambio = true;
+    return Object.assign({}, x, { [field]: value }, firmaAutor(false));
+  });
+  if (cambio) guardarCaja(tipo, list);
+}
+
+function deleteCaja(tipo, id) {
+  guardarCaja(tipo, cajaActual(tipo).filter((x) => x.id !== id));
+  render();
+}
+
 /* --------------------------------- totales -------------------------------- */
 
 function calcular() {
@@ -502,7 +564,12 @@ function calcular() {
   };
   total.general = total.efectivo + total.transfer + total.tarjeta;
 
-  return { rows, novs, sub, ajuste, total };
+  const consigs = cajaActual('consignaciones');
+  const deducs = cajaActual('deducciones');
+  const caja = { consignado: sumaCaja(consigs), deducido: sumaCaja(deducs) };
+  caja.entregar = total.efectivo - caja.consignado - caja.deducido;
+
+  return { rows, novs, consigs, deducs, sub, ajuste, total, caja };
 }
 
 /* --------------------------------- render --------------------------------- */
@@ -541,7 +608,8 @@ function td(content, cls, colSpan) {
 
 function render() {
   if (!state.rows.length) return;
-  const { rows, novs, sub, total } = calcular();
+  const datos = calcular();
+  const { rows, novs, sub, total } = datos;
 
   $('#reportWrap').hidden = false;
   $('#empty').hidden = rows.length > 0;
@@ -553,7 +621,7 @@ function render() {
   if ($('#selCriterio').value !== state.criterio) $('#selCriterio').value = state.criterio;
   pintarNotaCriterio();
 
-  renderKpis(sub, total, rows.length, novs.length);
+  renderKpis(datos);
 
   const table = $('#report');
   table.textContent = '';
@@ -613,6 +681,9 @@ function render() {
     td(fmtMoney(total.transfer), 'num'),
     td(fmtMoney(total.tarjeta), 'num')
   ]));
+
+  /* --- consignaciones, deducciones y efectivo a entregar --- */
+  pintarCaja(tb, datos);
 
   table.appendChild(tb);
 
@@ -681,15 +752,110 @@ function renderNovedad(n, rows) {
   return tr;
 }
 
-function renderKpis(sub, total, nRows, nNovs) {
+/** Bloque de caja: lo consignado, lo deducido y lo que queda por entregar. */
+function pintarCaja(tb, { consigs, deducs, caja }) {
+  const vacio = () => td('', '', 2);
+  const separador = () => el('tr', { class: 'r-spacer' }, [td('', '', COLS.length)]);
+
+  tb.appendChild(separador());
+  tb.appendChild(el('tr', { class: 'r-head' }, [
+    td('BANCO', '', 2), td('N.° COMPROBANTE', '', 2),
+    td('CONSIGNACIONES', 'center', 2), td('VALOR', 'num'), vacio()
+  ]));
+  consigs.forEach((c) => tb.appendChild(filaCaja('consignaciones', c)));
+  tb.appendChild(el('tr', { class: 'r-sub' }, [
+    td('TOTAL CONSIGNADO', 'c-label', 6),
+    td(caja.consignado ? fmtMoney(-caja.consignado) : fmtMoney(0), 'num'), vacio()
+  ]));
+
+  tb.appendChild(separador());
+  tb.appendChild(el('tr', { class: 'r-head' }, [
+    td('DEDUCCIONES', 'center', 6), td('VALOR', 'num'), vacio()
+  ]));
+  deducs.forEach((d) => tb.appendChild(filaCaja('deducciones', d)));
+  tb.appendChild(el('tr', { class: 'r-sub' }, [
+    td('TOTAL DEDUCIDO', 'c-label', 6),
+    td(caja.deducido ? fmtMoney(-caja.deducido) : fmtMoney(0), 'num'), vacio()
+  ]));
+
+  tb.appendChild(separador());
+  tb.appendChild(el('tr', { class: 'r-entregar' }, [
+    td('EFECTIVO A ENTREGAR', 'c-label', 6),
+    td(fmtMoney(caja.entregar), 'num'), vacio()
+  ]));
+}
+
+/** Fila editable de una consignación o de una deducción. */
+function filaCaja(tipo, x) {
+  const esConsig = tipo === 'consignaciones';
+  const tr = el('tr', { class: `r-caja r-${tipo}` });
+
+  const campo = (valor, field, placeholder, foco) => {
+    const input = el('input', {
+      class: 'cell-input' + (foco ? ' caja-foco' : ''), type: 'text',
+      value: valor || '', placeholder
+    });
+    input.addEventListener('change', () => updateCaja(tipo, x.id, field, input.value.trim()));
+    return input;
+  };
+
+  const firma = textoFirma(x);
+  const conFirma = (nodo) => {
+    const caja = el('div');
+    caja.appendChild(nodo);
+    if (firma) caja.appendChild(el('div', { class: 'nov-autor no-print', text: firma, title: firma }));
+    return caja;
+  };
+
+  /* primera celda: botón de eliminar + banco (o concepto) */
+  const primera = el('div', { class: 'cell-with-btn' });
+  const del = el('button', {
+    class: 'del-nov no-print', type: 'button',
+    title: esConsig ? 'Eliminar consignación' : 'Eliminar deducción', text: '×'
+  });
+  del.addEventListener('click', () => deleteCaja(tipo, x.id));
+  primera.appendChild(del);
+  primera.appendChild(esConsig
+    ? campo(x.banco, 'banco', 'Banco', true)
+    : campo(x.texto, 'texto', 'Concepto (ej. transporte de valores)', true));
+
+  if (esConsig) {
+    tr.appendChild(td(primera, '', 2));
+    tr.appendChild(td(campo(x.comprobante, 'comprobante', 'N.° de comprobante'), '', 2));
+    tr.appendChild(td(conFirma(campo(x.texto, 'texto', 'Observación (opcional)')), '', 2));
+  } else {
+    tr.appendChild(td(conFirma(primera), '', 6));
+  }
+
+  /* valor: siempre sale del efectivo, por eso se muestra en negativo */
+  const raw = Math.abs(parseNum(x.valor));
+  const monto = el('input', {
+    class: 'cell-input num', type: 'text', inputmode: 'decimal',
+    value: raw ? fmtMoney(-raw) : ''
+  });
+  monto.addEventListener('focus', () => { monto.value = raw ? String(raw) : ''; monto.select(); });
+  monto.addEventListener('blur', () => {
+    updateCaja(tipo, x.id, 'valor', Math.abs(parseNum(monto.value)));
+    render();
+  });
+  monto.addEventListener('keydown', (e) => { if (e.key === 'Enter') monto.blur(); });
+  const celda = td(monto, 'num');
+  if (raw) celda.classList.add('neg');
+  tr.appendChild(celda);
+  tr.appendChild(td('', '', 2));
+  return tr;
+}
+
+function renderKpis({ rows, novs, sub, total, caja }) {
   const box = $('#summary');
   box.textContent = '';
   const items = [
-    ['Turnos', fmtInt(nRows)],
+    ['Turnos', fmtInt(rows.length)],
     ['Ventas', fmtInt(sub.ventas)],
     ['Pasajeros', fmtInt(sub.pax)],
-    ['Novedades', fmtInt(nNovs)],
-    ['Total venta', fmtMoney(total.general)]
+    ['Novedades', fmtInt(novs.length)],
+    ['Total venta', fmtMoney(total.general)],
+    ['Efectivo a entregar', fmtMoney(caja.entregar)]
   ];
   items.forEach(([label, value]) => {
     box.appendChild(el('div', { class: 'kpi' }, [
@@ -714,7 +880,9 @@ function buildControls() {
   const selShift = $('#selShift');
   selShift.textContent = '';
   state.turnos.forEach((t) =>
-    selShift.appendChild(el('option', { value: t.id, text: t.name })));
+    selShift.appendChild(el('option', {
+      value: t.id, text: `${t.name}  ·  ${horaTexto(t.from)} – ${horaTexto(t.to)}`
+    })));
   selShift.appendChild(el('option', { value: TURNO_LIBRE.id, text: 'PERSONALIZADO (rango libre)' }));
   selShift.value = state.turnoId;
 
@@ -726,6 +894,13 @@ function buildControls() {
 
   syncShiftInputs();
   pintarNotaCriterio();
+  pintarPermisos();
+}
+
+/** Borrar un día es solo del administrador: a los demás ni se les muestra. */
+function pintarPermisos() {
+  const btn = $('#btnBorrarDia');
+  if (btn) btn.hidden = !esAdmin() || !state.date;
 }
 
 function pintarNotaCriterio() {
@@ -751,7 +926,7 @@ function persistSeleccion() {
 /* ------------------------------ exportaciones ----------------------------- */
 
 function reportMatrix() {
-  const { rows, novs, sub, total } = calcular();
+  const { rows, novs, consigs, deducs, sub, total, caja } = calcular();
   const out = [];
   out.push([tituloActual()]);
   out.push(COLS.map((c) => c.label));
@@ -771,6 +946,21 @@ function reportMatrix() {
   });
   out.push([]);
   out.push(['TOTAL VENTA', '', '', '', '', '', total.efectivo, total.transfer, total.tarjeta]);
+
+  out.push([]);
+  out.push(['BANCO', 'N.° COMPROBANTE', 'CONSIGNACIONES', '', '', '', 'VALOR']);
+  consigs.forEach((c) => out.push([
+    c.banco, c.comprobante, c.texto, '', '', '', -Math.abs(parseNum(c.valor))
+  ]));
+  out.push(['TOTAL CONSIGNADO', '', '', '', '', '', -caja.consignado]);
+
+  out.push([]);
+  out.push(['DEDUCCIONES', '', '', '', '', '', 'VALOR']);
+  deducs.forEach((d) => out.push([d.texto, '', '', '', '', '', -Math.abs(parseNum(d.valor))]));
+  out.push(['TOTAL DEDUCIDO', '', '', '', '', '', -caja.deducido]);
+
+  out.push([]);
+  out.push(['EFECTIVO A ENTREGAR', '', '', '', '', '', caja.entregar]);
   return out;
 }
 
@@ -799,7 +989,7 @@ function exportCSV() {
 }
 
 function exportExcel() {
-  const { rows, novs, sub, total } = calcular();
+  const { rows, novs, consigs, deducs, sub, total, caja } = calcular();
   const esc = (v) => String(v == null ? '' : v)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const money = 'mso-number-format:"\\#\\,\\#\\#0\\.00";';
@@ -853,6 +1043,61 @@ function exportExcel() {
     + `<td style="${th}${money}text-align:right">${total.efectivo}</td>`
     + `<td style="${th}${money}text-align:right">${total.transfer}</td>`
     + `<td style="${th}${money}text-align:right">${total.tarjeta}</td>`
+    + '</tr>';
+
+  /* --- consignaciones --- */
+  html += '<tr><td colspan="9"></td></tr>';
+  html += '<tr>'
+    + `<td colspan="2" style="${th}">BANCO</td>`
+    + `<td colspan="2" style="${th}">N.° COMPROBANTE</td>`
+    + `<td colspan="2" style="${th}text-align:center">CONSIGNACIONES</td>`
+    + `<td style="${th}text-align:right">VALOR</td>`
+    + `<td colspan="2" style="${th}"></td>`
+    + '</tr>';
+  consigs.forEach((c) => {
+    const v = Math.abs(parseNum(c.valor));
+    html += '<tr>'
+      + `<td colspan="2" style="${border}">${esc(c.banco)}</td>`
+      + `<td colspan="2" style="${border}">${esc(c.comprobante)}</td>`
+      + `<td colspan="2" style="${border}">${esc(c.texto)}</td>`
+      + cellNum(v ? -v : '')
+      + `<td colspan="2" style="${border}"></td>`
+      + '</tr>';
+  });
+  html += '<tr>'
+    + `<td colspan="6" style="${th}text-align:center">TOTAL CONSIGNADO</td>`
+    + `<td style="${th}${money}text-align:right">${-caja.consignado}</td>`
+    + `<td colspan="2" style="${th}"></td>`
+    + '</tr>';
+
+  /* --- deducciones --- */
+  html += '<tr><td colspan="9"></td></tr>';
+  html += '<tr>'
+    + `<td colspan="6" style="${th}text-align:center">DEDUCCIONES</td>`
+    + `<td style="${th}text-align:right">VALOR</td>`
+    + `<td colspan="2" style="${th}"></td>`
+    + '</tr>';
+  deducs.forEach((d) => {
+    const v = Math.abs(parseNum(d.valor));
+    html += '<tr>'
+      + `<td colspan="6" style="${border}">${esc(d.texto)}</td>`
+      + cellNum(v ? -v : '')
+      + `<td colspan="2" style="${border}"></td>`
+      + '</tr>';
+  });
+  html += '<tr>'
+    + `<td colspan="6" style="${th}text-align:center">TOTAL DEDUCIDO</td>`
+    + `<td style="${th}${money}text-align:right">${-caja.deducido}</td>`
+    + `<td colspan="2" style="${th}"></td>`
+    + '</tr>';
+
+  /* --- lo que queda por entregar --- */
+  const entregar = `${border}background:#f2b6d8;font-weight:bold;`;
+  html += '<tr><td colspan="9"></td></tr>';
+  html += '<tr>'
+    + `<td colspan="6" style="${entregar}text-align:center">EFECTIVO A ENTREGAR</td>`
+    + `<td style="${entregar}${money}text-align:right">${caja.entregar}</td>`
+    + `<td colspan="2" style="${entregar}"></td>`
     + '</tr></table>';
 
   const doc = '<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8">'
@@ -950,21 +1195,16 @@ function bindEvents() {
   });
 
   $('#btnAddNov').addEventListener('click', addNovedad);
+  $('#btnAddConsig').addEventListener('click', () => addCaja('consignaciones'));
+  $('#btnAddDeduc').addEventListener('click', () => addCaja('deducciones'));
+  $('#btnBorrarDia').addEventListener('click', borrarDia);
   $('#btnPrint').addEventListener('click', () => window.print());
   $('#btnExcel').addEventListener('click', exportExcel);
   $('#btnCsv').addEventListener('click', exportCSV);
 
   $('#btnClear').addEventListener('click', () => {
-    if (!confirm('¿Quitar el archivo cargado? Las novedades guardadas se conservan.')) return;
-    store.del(LS.csv);
-    state.rows = [];
-    state.fileName = '';
-    state.origen = '';
-    $('#dzNube').hidden = !Object.keys(state.fechasNube).length;
-    $('#fileInfo').textContent = 'Ningún archivo cargado';
-    $('#dropzone').hidden = false;
-    ['#controls', '#reportWrap', '#summary', '#empty'].forEach((s) => ($(s).hidden = true));
-    ['#btnPrint', '#btnExcel', '#btnCsv', '#btnClear'].forEach((s) => ($(s).disabled = true));
+    if (!confirm('¿Quitar el archivo cargado? Lo guardado en línea se conserva.')) return;
+    limpiarPantalla();
   });
 
   document.addEventListener('keydown', (e) => {
@@ -1001,9 +1241,14 @@ function setupPWA() {
 }
 
 function init() {
-  state.turnos = store.get(LS.turnos, null) || TURNOS_DEFECTO.map((t) => Object.assign({}, t));
+  const guardados = store.get(LS.turnos, null);
+  state.turnos = turnosVigentes(guardados)
+    ? guardados
+    : TURNOS_DEFECTO.map((t) => Object.assign({}, t));
   state.libre = Object.assign({}, TURNO_LIBRE, store.get(LS.libre, {}));
   state.novedades = store.get(LS.nov, {});
+  state.consignaciones = store.get(LS.consig, {});
+  state.deducciones = store.get(LS.deduc, {});
   state.titulos = store.get(LS.titles, {});
   state.sedes = store.get(LS.sedes, []);
 
@@ -1043,6 +1288,7 @@ function setSyncEstado(clase, mensaje) {
     btn.classList.toggle('btn-nube-on', on);
     btn.textContent = on ? nombreUsuario() : 'Nube';
   }
+  pintarPermisos();
 }
 
 function refrescarEstadoNube() {
@@ -1194,25 +1440,49 @@ function partesKey(key) {
   return { fecha, turnoId };
 }
 
+/** Quién registró y quién editó, tal como debe viajar a la nube. */
+function firmaGuardada(x) {
+  return {
+    autor: x.autor || null,
+    autorCorreo: x.autorCorreo || null,
+    creado: x.creado || null,
+    editadoPor: x.editadoPor || null,
+    editadoCorreo: x.editadoCorreo || null,
+    editado: x.editado || null,
+    ubicacionCreado: x.ubicacionCreado || null,
+    ubicacionEditado: x.ubicacionEditado || null
+  };
+}
+
 /** Deja la novedad en un formato estable y con montos numéricos. */
 function limpiarNovedad(n) {
-  return {
+  return Object.assign({
     id: n.id || ('n' + Math.random().toString(36).slice(2, 10)),
     shift: String(n.shift || ''),
     accion: n.accion === 'SUMAR' ? 'SUMAR' : 'RESTAR',
     texto: String(n.texto || ''),
     efectivo: Math.abs(parseNum(n.efectivo)),
     transfer: Math.abs(parseNum(n.transfer)),
-    tarjeta: Math.abs(parseNum(n.tarjeta)),
-    autor: n.autor || null,
-    autorCorreo: n.autorCorreo || null,
-    creado: n.creado || null,
-    editadoPor: n.editadoPor || null,
-    editadoCorreo: n.editadoCorreo || null,
-    editado: n.editado || null,
-    ubicacionCreado: n.ubicacionCreado || null,
-    ubicacionEditado: n.ubicacionEditado || null
-  };
+    tarjeta: Math.abs(parseNum(n.tarjeta))
+  }, firmaGuardada(n));
+}
+
+function limpiarConsignacion(c) {
+  return Object.assign({
+    id: c.id || ('c' + Math.random().toString(36).slice(2, 10)),
+    banco: String(c.banco || ''),
+    comprobante: String(c.comprobante || ''),
+    texto: String(c.texto || ''),
+    valor: Math.abs(parseNum(c.valor))
+  }, firmaGuardada(c));
+}
+
+function limpiarDeduccion(d) {
+  return Object.assign({
+    id: d.id || ('d' + Math.random().toString(36).slice(2, 10)),
+    texto: String(d.texto || ''),
+    valor: Math.abs(parseNum(d.valor))
+  }, firmaGuardada(d));
 }
 
 function marcarPendiente(key) {
@@ -1235,6 +1505,8 @@ async function subirInforme(key) {
     turno_nombre: turno ? turno.name : null,
     titulo: state.titulos[key] || null,
     novedades: (state.novedades[key] || []).map(limpiarNovedad),
+    consignaciones: (state.consignaciones[key] || []).map(limpiarConsignacion),
+    deducciones: (state.deducciones[key] || []).map(limpiarDeduccion),
     ubicacion: ubicacionActual()
   });
   if (fila) {
@@ -1271,9 +1543,22 @@ async function bajarInforme(key) {
       const lista = Array.isArray(fila.novedades) ? fila.novedades.map(limpiarNovedad) : [];
       if (lista.length) state.novedades[key] = lista;
       else delete state.novedades[key];
+
+      const consigs = Array.isArray(fila.consignaciones)
+        ? fila.consignaciones.map(limpiarConsignacion) : [];
+      if (consigs.length) state.consignaciones[key] = consigs;
+      else delete state.consignaciones[key];
+
+      const deducs = Array.isArray(fila.deducciones)
+        ? fila.deducciones.map(limpiarDeduccion) : [];
+      if (deducs.length) state.deducciones[key] = deducs;
+      else delete state.deducciones[key];
+
       if (fila.titulo) state.titulos[key] = fila.titulo;
       else delete state.titulos[key];
       store.set(LS.nov, state.novedades);
+      store.set(LS.consig, state.consignaciones);
+      store.set(LS.deduc, state.deducciones);
       store.set(LS.titles, state.titulos);
       sync.remoto[key] = fila.updated_at;
       sync.autorRemoto[key] = fila.updated_by;
@@ -1290,12 +1575,14 @@ async function bajarTurnos() {
   if (!Nube.conectado()) return;
   try {
     const fila = await Nube.leerConfig('turnos');
-    if (fila && Array.isArray(fila.valor) && fila.valor.length) {
-      state.turnos = fila.valor;
-      store.set(LS.turnos, state.turnos);
-      if (!state.turnos.some((t) => t.id === state.turnoId)) state.turnoId = state.turnos[0].id;
-      if (state.rows.length) { buildControls(); render(); }
+    if (!fila || !turnosVigentes(fila.valor)) {
+      await subirTurnos();     // la nube tiene los turnos viejos: se publican los vigentes
+      return;
     }
+    state.turnos = fila.valor;
+    store.set(LS.turnos, state.turnos);
+    if (!state.turnos.some((t) => t.id === state.turnoId)) state.turnoId = state.turnos[0].id;
+    if (state.rows.length) { buildControls(); render(); }
   } catch (_) { /* la configuración local sigue sirviendo */ }
 }
 
@@ -1416,6 +1703,86 @@ async function subirCierresPendientes() {
     sync.ubicCierres = null;
     store.del(LS.cierresPend);
   }
+}
+
+/** Borra de la nube todo lo de un día. Solo el administrador; no se deshace. */
+async function borrarDia() {
+  const fecha = state.date;
+  if (!fecha) return;
+  if (!esAdmin()) { toast('Solo el administrador puede borrar días', true); return; }
+  if (!Nube.conectado() || !red.servidor) {
+    toast('Necesitas conexión para borrar un día', true);
+    return;
+  }
+
+  const [y, m, d] = fecha.split('-').map(Number);
+  const bonita = `${d} de ${MESES[m - 1]} de ${y}`;
+  const cargados = state.rows.filter((r) => dateKey(r.inicio) === fecha).length;
+
+  if (!confirm(`Se borrará de la nube todo el ${bonita}:\n\n`
+    + `· los turnos que iniciaron ese día (${fmtInt(cargados)} a la vista)\n`
+    + '· las novedades, consignaciones y deducciones de sus informes\n\n'
+    + 'Esto no se puede deshacer. ¿Continuar?')) return;
+  if (!confirm(`Última confirmación: borrar el ${bonita}.`)) return;
+
+  setSyncEstado('', 'Borrando el día...');
+  try {
+    const borrado = await Nube.borrarDia(fecha);
+
+    // se limpia lo de ese día en el equipo para que no vuelva a subirse
+    [state.novedades, state.consignaciones, state.deducciones, state.titulos, sync.pendientes]
+      .forEach((mapa) => Object.keys(mapa).forEach((k) => {
+        if (partesKey(k).fecha === fecha) delete mapa[k];
+      }));
+    store.set(LS.nov, state.novedades);
+    store.set(LS.consig, state.consignaciones);
+    store.set(LS.deduc, state.deducciones);
+    store.set(LS.titles, state.titulos);
+    store.set(LS.pend, sync.pendientes);
+
+    // el CSV guardado aquí volvería a subir el día: se suelta el archivo
+    store.del(LS.csv);
+    store.del(LS.cierresPend);
+    sync.cierresPorSubir = null;
+    state.fileName = '';
+    state.origen = 'nube';
+    state.rows = state.rows.filter((r) => dateKey(r.inicio) !== fecha);
+    delete state.fechasNube[fecha];
+
+    const quedan = todasLasFechas();
+    state.date = quedan[0] || '';
+    persistSeleccion();
+
+    await cargarFechasNube();
+    if (state.date) await bajarCierres(state.date);
+    if (state.rows.length) {
+      mostrarInforme();
+      if (state.date) await bajarInforme(currentKey());
+    } else {
+      limpiarPantalla();
+    }
+
+    toast(borrado.cierres || borrado.informes
+      ? `${bonita}: ${fmtInt(borrado.cierres)} cierres y ${fmtInt(borrado.informes)} informe(s) borrados`
+      : `No había nada guardado del ${bonita}`);
+    refrescarEstadoNube();
+  } catch (err) {
+    setSyncEstado('err', err.message || 'No se pudo borrar el día');
+    toast(err.message || 'No se pudo borrar el día', true);
+  }
+}
+
+/** Deja la pantalla como si no hubiera archivo; no borra nada en línea. */
+function limpiarPantalla() {
+  store.del(LS.csv);
+  state.rows = [];
+  state.fileName = '';
+  state.origen = '';
+  $('#dzNube').hidden = !Object.keys(state.fechasNube).length;
+  $('#fileInfo').textContent = 'Ningún archivo cargado';
+  $('#dropzone').hidden = false;
+  ['#controls', '#reportWrap', '#summary', '#empty'].forEach((s) => ($(s).hidden = true));
+  ['#btnPrint', '#btnExcel', '#btnCsv', '#btnClear'].forEach((s) => ($(s).disabled = true));
 }
 
 /** Convierte una fila del servidor al formato que usa la tabla. */

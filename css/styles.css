@@ -163,7 +163,8 @@ select.cell-input{cursor:pointer}
   .report{min-width:0; font-size:10.5px}
   .report td{padding:3px 5px}
   .cell-input{border-color:transparent !important; background:transparent !important; box-shadow:none !important}
-  .r-title td,.r-head td,.r-total td,.r-grand td{-webkit-print-color-adjust:exact; print-color-adjust:exact}
+  .r-title td,.r-head td,.r-total td,.r-grand td,
+  .r-sub td,.r-entregar td{-webkit-print-color-adjust:exact; print-color-adjust:exact}
   tr{break-inside:avoid}
 }
 
@@ -317,3 +318,13 @@ button.net:hover{filter:brightness(.97)}
 }
 .sede-nueva input:focus,
 .user-row input[type=number]:focus{outline:none; border-color:var(--blue); box-shadow:0 0 0 2px #dce7ff}
+
+/* ---------- cierre de caja: consignaciones y deducciones ---------- */
+.r-caja td{background:#fff}
+.r-sub td{background:var(--blue-soft); font-weight:700}
+.r-sub .c-label{font-weight:600}
+.r-entregar td{background:var(--pink); font-weight:700; font-size:14px}
+.r-entregar .c-label{text-align:center; letter-spacing:.04em}
+
+.btn-peligro{color:var(--bad)}
+.btn-peligro:hover:not(:disabled){background:#fdeceb; color:var(--bad)}

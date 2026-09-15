@@ -133,7 +133,8 @@ const Nube = (function () {
   async function leerInforme(fecha, turnoId) {
     const q = `/rest/v1/informe_novedades?fecha=eq.${encodeURIComponent(fecha)}`
             + `&turno_id=eq.${encodeURIComponent(turnoId)}`
-            + `&select=fecha,turno_id,turno_nombre,titulo,novedades,updated_at,updated_by,ubicacion`;
+            + `&select=fecha,turno_id,turno_nombre,titulo,novedades,consignaciones,deducciones,`
+            + `updated_at,updated_by,ubicacion`;
     const filas = await api(q, { method: 'GET' });
     return (filas && filas[0]) || null;
   }
@@ -189,6 +190,20 @@ const Nube = (function () {
       + `&or=(and(inicio.gte.${desde},inicio.lte.${hasta}),and(final.gte.${desde},final.lte.${hasta}))`
       + '&order=final.desc';
     return (await api(q, { method: 'GET' })) || [];
+  }
+
+  /** Borra un día completo: los turnos que iniciaron ese día y su informe.
+      Solo el administrador; a los demás RLS no les borra nada. */
+  async function borrarDia(fecha) {
+    const desde = `${fecha}T00:00:00`;
+    const hasta = `${fecha}T23:59:59`;
+    const cierres = await api(
+      `/rest/v1/informe_cierres?inicio=gte.${desde}&inicio=lte.${hasta}`,
+      { method: 'DELETE', headers: { Prefer: 'return=representation' } });
+    const informes = await api(
+      `/rest/v1/informe_novedades?fecha=eq.${encodeURIComponent(fecha)}`,
+      { method: 'DELETE', headers: { Prefer: 'return=representation' } });
+    return { cierres: (cierres || []).length, informes: (informes || []).length };
   }
 
   /** Fechas que ya tienen cierres guardados, con su conteo. */
@@ -286,7 +301,7 @@ const Nube = (function () {
     setConfig,
     iniciarSesion, recuperarClave, cerrarSesion,
     leerInforme, guardarInforme, leerConfig, guardarConfig,
-    guardarCierres, leerCierresDelDia, leerFechasConCierres,
+    guardarCierres, leerCierresDelDia, leerFechasConCierres, borrarDia,
     miPerfil, leerUsuarios, guardarUsuario,
     leerSedes, crearSede, actualizarSede,
     hayServidor

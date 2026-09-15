@@ -22,7 +22,9 @@ no se ve ningún cierre ni novedad. Los CSV nunca se suben al repositorio (`.git
 3. Elige la **fecha** y el **turno**. La tabla se arma sola.
 4. Agrega las novedades con **+ Agregar novedad** (shift_id, RESTAR/SUMAR, descripción y el monto
    en la columna que corresponda).
-5. **Imprimir / PDF**, **Exportar Excel** o **Exportar CSV**.
+5. Registra el cierre de caja con **+ Agregar consignación** y **+ Agregar deducción**; abajo
+   queda el **EFECTIVO A ENTREGAR**.
+6. **Imprimir / PDF**, **Exportar Excel** o **Exportar CSV**.
 
 Para instalarla como aplicación de escritorio: botón **Instalar app** de la barra superior
 (o el icono de instalación en la barra de direcciones del navegador).
@@ -41,11 +43,18 @@ El panel tiene cuatro controles: **fecha**, **turno**, **filtrar por** y el rang
 
 ### Turnos y rango libre
 
-| Turno | Rango por defecto |
-|---|---|
-| TURNO NOCHE | 00:00 – 11:59 |
-| TURNO TARDE | 12:00 – 23:59 |
-| PERSONALIZADO | Rango libre (por ejemplo 06:00 – 14:00) |
+Los rangos siguen el protocolo de cierre y son **acumulados desde la medianoche**:
+
+| Turno | Rango del informe | Quién lo saca |
+|---|---|---|
+| TURNO AM | 00:00 – 06:15 | Cierre de caja de Almacentro, una sola persona |
+| TURNO PM | 00:00 – 15:15 | Quien recibe las cajas de la mañana |
+| TURNO NOCHE | 00:00 – 23:59 | Informe de las 24 horas, al final del día |
+| PERSONALIZADO | Rango libre (por ejemplo 06:00 – 14:00) | Consultas puntuales |
+
+Los horarios de las personas son otra cosa y no cambian el informe: con tres líderes son
+AM 5:30–13:30, PM 11:00–19:00 y NOCHE 17:00–01:00; cuando uno descansa quedan dos turnos
+(5:30–15:00 y 15:00–01:00) y las mismas tres descargas se reparten entre ellos.
 
 Al editar las horas de un turno con nombre, el cambio queda guardado y se comparte por Supabase.
 Con **PERSONALIZADO** el rango es libre y solo afecta a ese equipo: sirve para consultas puntuales
@@ -70,6 +79,32 @@ en `dd/mm/aaaa` o ISO.
 - **RESTAR** descuenta el monto del subtotal; **SUMAR** lo agrega.
 - El monto se escribe en positivo; el signo lo pone la acción (se muestra en rojo si resta).
 - Se guardan automáticamente en el equipo, separadas por fecha y turno, y siguen ahí al reabrir la app.
+
+## Consignaciones y deducciones
+
+Debajo del **TOTAL VENTA** el informe cierra la caja del turno:
+
+| Sección | Campos | Efecto |
+|---|---|---|
+| **CONSIGNACIONES** | Banco, n.º de comprobante, observación y valor | Baja el efectivo |
+| **DEDUCCIONES** | Concepto y valor | Baja el efectivo |
+| **EFECTIVO A ENTREGAR** | — | Efectivo del turno − consignado − deducido |
+
+Se agregan con **+ Agregar consignación** y **+ Agregar deducción**. Los valores se escriben en
+positivo y se muestran en rojo, porque siempre salen del efectivo. Como las novedades, se guardan
+por fecha y turno, viajan a Supabase y quedan firmadas con quién las registró, cuándo y desde dónde.
+
+## Borrar un día
+
+El botón **Borrar día**, junto al selector de fecha, lo ve **solo el administrador** y pide dos
+confirmaciones. Borra de la nube los turnos que *iniciaron* esa fecha y los informes del día
+(novedades, consignaciones y deducciones). No se puede deshacer.
+
+También se suelta el CSV cargado en el equipo, para que el archivo no vuelva a subir el día
+recién borrado. Los demás días siguen disponibles en línea.
+
+El servidor impone la regla: aunque alguien llame el borrado por su cuenta, RLS solo se lo permite
+al administrador (verificado: a un líder le borra `0` filas).
 
 ## Archivos
 
@@ -163,7 +198,7 @@ y ya fue aplicado.
 | Tabla | Contenido |
 |---|---|
 | `informe_cierres` | Un cierre de turno por `shift_id`: agente, ventas, pasajeros, inicio, final y recaudos |
-| `informe_novedades` | Una fila por (fecha, turno): título y arreglo JSON de novedades |
+| `informe_novedades` | Una fila por (fecha, turno): título y arreglos JSON de novedades, consignaciones y deducciones |
 | `informe_config` | Configuración compartida; la clave `turnos` guarda los rangos horarios |
 | `informe_sedes` | Sedes registradas por el administrador: nombre, coordenadas y radio |
 
@@ -244,8 +279,11 @@ nada del informe (todas las políticas exigen `informe_autorizado()`).
 
 | Rol | Puede |
 |---|---|
-| `admin` | Todo lo del líder, y además poner nombre a los usuarios y activarlos o desactivarlos |
-| `lider` | Cargar cierres, editar novedades, imprimir y exportar |
+| `admin` | Todo lo del líder, y además registrar sedes, poner nombre a los usuarios, activarlos o desactivarlos y **borrar días** |
+| `lider` | Cargar cierres, editar novedades, consignaciones y deducciones, imprimir y exportar |
+
+Hoy hay un administrador (`desarrollo@combuses.com.co`) y cuatro líderes
+(`lider1@…` a `lider4@…`): tres de turno y uno que cubre los descansos.
 
 El administrador ve el panel **Usuarios del informe** dentro del botón *Nube*: escribe el
 nombre de cada persona y se guarda al salir del campo. Ese nombre es el que aparece luego
