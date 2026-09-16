@@ -1194,6 +1194,7 @@ function bindEvents() {
     render();
   });
 
+  $('#btnActualizar').addEventListener('click', (e) => actualizarVersion(e.target));
   $('#btnAddNov').addEventListener('click', addNovedad);
   $('#btnAddConsig').addEventListener('click', () => addCaja('consignaciones'));
   $('#btnAddDeduc').addEventListener('click', () => addCaja('deducciones'));
@@ -1220,8 +1221,17 @@ function bindEvents() {
 
 function setupPWA() {
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () =>
-      navigator.serviceWorker.register('sw.js').catch(() => {}));
+    let habiaControlador = !!navigator.serviceWorker.controller;
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js')
+        .then(vigilarActualizacion)
+        .catch(() => {});
+    });
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      // la primera instalación toma el control sin que nada haya cambiado en pantalla
+      if (!habiaControlador) { habiaControlador = true; return; }
+      mostrarAvisoVersion();   // los archivos viejos siguen a la vista: hay que recargar
+    });
   }
   let deferred = null;
   const btn = $('#btnInstall');
@@ -1240,6 +1250,70 @@ function setupPWA() {
   window.addEventListener('appinstalled', () => { btn.hidden = true; });
 }
 
+/* ---------------------------- versión de la app ---------------------------
+   Al publicar una versión nueva, la pestaña abierta sigue con los archivos
+   viejos hasta recargar. En vez de recargar sin avisar (alguien podría estar
+   escribiendo), se muestra una banda con el botón para actualizar.
+   ------------------------------------------------------------------------- */
+
+const VERSION_APP = (self.IDV_VERSION && self.IDV_VERSION.numero) || '';
+
+function pintarVersion() {
+  const v = self.IDV_VERSION;
+  if (!v) return;
+  const texto = `Versión ${v.numero} · ${v.fecha}`;
+  [$('#versionPie'), $('#versionModal')].forEach((n) => { if (n) n.textContent = texto; });
+}
+
+function vigilarActualizacion(reg) {
+  if (!reg) return;
+  if (reg.waiting && navigator.serviceWorker.controller) mostrarAvisoVersion();
+
+  reg.addEventListener('updatefound', () => {
+    const nuevo = reg.installing;
+    if (!nuevo) return;
+    nuevo.addEventListener('statechange', () => {
+      // la primera instalación no se avisa: no hay nada viejo en pantalla
+      if (nuevo.state === 'installed' && navigator.serviceWorker.controller) mostrarAvisoVersion();
+    });
+  });
+
+  const buscar = () => { reg.update().catch(() => {}); };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) buscar(); });
+  setInterval(buscar, 1800000);      // por si la app queda abierta todo el día
+  compararVersionSW();
+}
+
+/** ¿El service worker que responde es de esta misma versión? */
+function compararVersionSW() {
+  const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
+  if (!sw || !VERSION_APP) return;
+
+  const revisar = (datos) => {
+    if (datos && datos.version && datos.version !== VERSION_APP) mostrarAvisoVersion();
+  };
+  navigator.serviceWorker.addEventListener('message', (e) => revisar(e.data));
+
+  if (typeof MessageChannel !== 'undefined') {
+    const canal = new MessageChannel();
+    canal.port1.onmessage = (e) => revisar(e.data);
+    try { sw.postMessage({ tipo: 'version' }, [canal.port2]); return; } catch (_) {}
+  }
+  try { sw.postMessage({ tipo: 'version' }); } catch (_) {}
+}
+
+function mostrarAvisoVersion() {
+  const bar = $('#updateBar');
+  if (bar) bar.hidden = false;
+}
+
+async function actualizarVersion(btn) {
+  btn.disabled = true;
+  btn.textContent = 'Actualizando...';
+  try { await subirPendientes(); } catch (_) { /* se subirá al reabrir */ }
+  location.reload();
+}
+
 function init() {
   const guardados = store.get(LS.turnos, null);
   state.turnos = turnosVigentes(guardados)
@@ -1252,6 +1326,7 @@ function init() {
   state.titulos = store.get(LS.titles, {});
   state.sedes = store.get(LS.sedes, []);
 
+  pintarVersion();
   bindEvents();
   setupPWA();
   initNube();

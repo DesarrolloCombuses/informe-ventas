@@ -106,6 +106,40 @@ recién borrado. Los demás días siguen disponibles en línea.
 El servidor impone la regla: aunque alguien llame el borrado por su cuenta, RLS solo se lo permite
 al administrador (verificado: a un líder le borra `0` filas).
 
+## Versiones y actualizaciones
+
+La aplicación lleva un número de versión visible en el pie y en el panel **Mi sesión**
+(*Versión v12 · 16 de septiembre de 2026*, por ejemplo). Sirve para saber qué tiene cada
+equipo cuando alguien reporte algo raro.
+
+### Cómo se actualiza en los equipos
+
+- Los archivos de la aplicación se piden **primero a internet** y la caché queda como respaldo:
+  con conexión, nadie se queda con una versión vieja. Sin conexión, sigue funcionando todo.
+- Cuando se publica una versión nueva, a quien tenga la aplicación abierta le sale una banda azul:
+  **«Hay una versión nueva de la aplicación · Actualizar ahora»**. El botón sube lo que esté
+  pendiente y recarga; no se pierde nada de lo registrado.
+- La aplicación busca versiones nuevas al volver a la pestaña y cada media hora, además de
+  comparar su versión con la del service worker por si quedaron desfasados.
+- Ya no hace falta pedirle a nadie *Ctrl+F5*.
+
+### Cómo publicar
+
+Desde PowerShell, en esta carpeta:
+
+```powershell
+.\publicar.ps1 "Lo que cambió"
+```
+
+El script hace todo lo que antes había que recordar a mano:
+
+1. sube el número de versión en `sw.js` y en `js/version.js` (la caché pasa a `idv-v12`, etc.);
+2. revisa que no se cuele nada que no debe subirse: archivos `.csv`, contraseñas, archivos de prueba;
+3. hace el commit y lo sube a GitHub;
+4. espera a que GitHub Pages publique y confirma que la versión nueva ya está en línea.
+
+Si algo de la revisión falla, **no publica** y dice por qué.
+
 ## Archivos
 
 ```

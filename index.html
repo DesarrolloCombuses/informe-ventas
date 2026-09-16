@@ -71,6 +71,15 @@
   <input type="file" id="fileInput" accept=".csv,text/csv" hidden>
 </header>
 
+<div id="updateBar" class="offbar nueva no-print" hidden role="status" aria-live="polite">
+  <span class="offbar-icon" aria-hidden="true">&#8593;</span>
+  <div class="offbar-text">
+    <strong>Hay una versión nueva de la aplicación</strong>
+    <span>Actualiza para usarla. Lo que ya registraste está guardado.</span>
+  </div>
+  <button id="btnActualizar" class="btn btn-sm">Actualizar ahora</button>
+</div>
+
 <div id="offlineBar" class="offbar no-print" hidden role="status" aria-live="polite">
   <span class="offbar-icon" aria-hidden="true">!</span>
   <div class="offbar-text">
@@ -146,7 +155,8 @@
 
 </main>
 
-<footer class="foot no-print">Cada cambio queda registrado con el nombre de quien lo hace · Funciona sin conexión</footer>
+<footer class="foot no-print">Cada cambio queda registrado con el nombre de quien lo hace · Funciona sin conexión
+  · <span id="versionPie"></span></footer>
 
 
 <div id="modalNube" class="modal no-print" hidden>
@@ -183,6 +193,8 @@
         <div id="listaSedes" class="user-list"></div>
       </div>
 
+      <p class="hint" id="versionModal"></p>
+
       <div class="modal-actions">
         <button id="btnSalir" class="btn">Cerrar sesión</button>
       </div>
@@ -191,6 +203,7 @@
   </div>
 </div>
 
+<script src="js/version.js"></script>
 <script src="js/supabase-config.js"></script>
 <script src="js/nube.js"></script>
 <script src="js/app.js"></script>

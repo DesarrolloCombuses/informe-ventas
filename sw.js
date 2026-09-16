@@ -1,9 +1,15 @@
-/* Service worker: cache-first para el shell de la app. */
-const CACHE = 'idv-v10';
+/* Service worker.
+   Los archivos de la aplicación se piden a la red primero, para que nadie se
+   quede con una versión vieja; la caché es el respaldo cuando no hay internet.
+   El número de versión lo sube `publicar.ps1` en cada publicación. */
+const VERSION = 'v12';
+const CACHE = 'idv-' + VERSION;
+
 const ASSETS = [
   './',
   './index.html',
   './css/styles.css',
+  './js/version.js',
   './js/app.js',
   './js/nube.js',
   './js/supabase-config.js',
@@ -29,20 +35,46 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/* La página pregunta qué versión está sirviendo para avisar si no coincide. */
+self.addEventListener('message', (event) => {
+  const dato = event.data || {};
+  if (dato.tipo !== 'version') return;
+  const respuesta = { tipo: 'version', version: VERSION };
+  // por el canal que abrió la página y también por la vía normal, para que la
+  // respuesta llegue aunque el service worker se haya dormido entre medio
+  if (event.ports && event.ports[0]) event.ports[0].postMessage(respuesta);
+  if (event.source && event.source.postMessage) event.source.postMessage(respuesta);
+});
+
+/** Archivos de la aplicación: siempre conviene la copia más nueva. */
+function esDeLaApp(req, url) {
+  return req.mode === 'navigate' || /\.(html|js|css|webmanifest)$/.test(url.pathname);
+}
+
+function guardarEnCache(req, res) {
+  const copia = res.clone();
+  caches.open(CACHE).then((c) => c.put(req, copia)).catch(() => {});
+  return res;
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
 
+  if (esDeLaApp(req, url)) {
+    // red primero: si hay internet, siempre se ve la última versión publicada
+    event.respondWith(
+      fetch(req)
+        .then((res) => guardarEnCache(req, res))
+        .catch(() => caches.match(req).then((hit) => hit || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // lo demás (iconos e imágenes) no cambia: sale de la caché
   event.respondWith(
-    caches.match(req).then((hit) => {
-      if (hit) return hit;
-      return fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
-          return res;
-        })
-        .catch(() => caches.match('./index.html'));
-    })
+    caches.match(req).then((hit) => hit || fetch(req).then((res) => guardarEnCache(req, res)))
   );
 });

@@ -250,6 +250,12 @@ select.cell-input{cursor:pointer}
 .offbar .btn{background:#fff; border-color:#e6cfa4; color:#7a4e00}
 .offbar .btn:hover:not(:disabled){background:#fffaf2; border-color:#d9bd8a}
 
+/* aviso de versión nueva publicada */
+.offbar.nueva{background:#e8effb; border-bottom-color:#c3d4f5; color:#1b3a8a}
+.offbar.nueva .offbar-icon{background:var(--blue)}
+.offbar.nueva .btn{background:#fff; border-color:#c3d4f5; color:var(--blue)}
+.offbar.nueva .btn:hover:not(:disabled){background:#f5f8ff; border-color:#a9c2ef}
+
 /* al recuperar la conexión */
 .offbar.ok{background:#e8f5ee; border-bottom-color:#bfe3ce; color:#0b6b45}
 .offbar.ok .offbar-icon{background:#12a05f}
@@ -282,6 +288,7 @@ select.cell-input{cursor:pointer}
 /* ---------- acceso obligatorio ---------- */
 body.bloqueado > .topbar,
 body.bloqueado > #offlineBar,
+body.bloqueado > #updateBar,
 body.bloqueado > main,
 body.bloqueado > .foot,
 body.bloqueado > #modalNube{display:none !important}
