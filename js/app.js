@@ -1203,10 +1203,7 @@ function bindEvents() {
   $('#btnExcel').addEventListener('click', exportExcel);
   $('#btnCsv').addEventListener('click', exportCSV);
 
-  $('#btnClear').addEventListener('click', () => {
-    if (!confirm('¿Quitar el archivo cargado? Lo guardado en línea se conserva.')) return;
-    limpiarPantalla();
-  });
+  $('#btnNuevo').addEventListener('click', nuevoInforme);
 
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') return; // imprimir nativo
@@ -1857,7 +1854,33 @@ function limpiarPantalla() {
   $('#fileInfo').textContent = 'Ningún archivo cargado';
   $('#dropzone').hidden = false;
   ['#controls', '#reportWrap', '#summary', '#empty'].forEach((s) => ($(s).hidden = true));
-  ['#btnPrint', '#btnExcel', '#btnCsv', '#btnClear'].forEach((s) => ($(s).disabled = true));
+  ['#btnPrint', '#btnExcel', '#btnCsv', '#btnNuevo'].forEach((s) => ($(s).disabled = true));
+}
+
+/** Empieza otro informe: quita el archivo de la pantalla y suelta la fecha, el
+    turno y el rango elegidos. Antes intenta subir lo que esté pendiente y avisa
+    si algo se queda sin subir. No borra nada de la nube ni las novedades ya
+    registradas de otros turnos. */
+async function nuevoInforme() {
+  if (Object.keys(sync.pendientes).length) await subirPendientes();
+
+  const pend = Object.keys(sync.pendientes).length;
+  const aviso = pend
+    ? 'Hay ' + fmtInt(pend) + ' cambio(s) sin subir al servidor. Quedan guardados en este '
+      + 'equipo y se suben solos cuando vuelva la conexión.\n\n'
+    : '';
+  if (!confirm(aviso + '¿Empezar un informe nuevo?\n\n'
+      + 'Se quita el archivo de esta pantalla. Lo guardado en línea se conserva.')) return;
+
+  limpiarPantalla();
+  state.date = '';
+  state.turnoId = '';
+  state.criterio = 'inicio';
+  state.sort = { key: null, dir: 1 };
+  state.libre = Object.assign({}, TURNO_LIBRE);
+  store.del(LS.libre);
+  persistSeleccion();
+  toast('Listo: carga un CSV o baja un día de la nube');
 }
 
 /** Convierte una fila del servidor al formato que usa la tabla. */
@@ -1916,7 +1939,7 @@ function mostrarInforme() {
                : state.origen === 'mixto' ? 'archivo + nube'
                : state.fileName;
   $('#fileInfo').textContent = `${origen} · ${state.rows.length} turnos · ${fechas.length} fecha(s)`;
-  ['#btnPrint', '#btnExcel', '#btnCsv', '#btnClear'].forEach((s) => ($(s).disabled = false));
+  ['#btnPrint', '#btnExcel', '#btnCsv', '#btnNuevo'].forEach((s) => ($(s).disabled = false));
   $('#dropzone').hidden = true;
   $('#controls').hidden = false;
 }

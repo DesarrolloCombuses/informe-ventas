@@ -25,6 +25,10 @@ no se ve ningún cierre ni novedad. Los CSV nunca se suben al repositorio (`.git
 5. Registra el cierre de caja con **+ Agregar consignación** y **+ Agregar deducción**; abajo
    queda el **EFECTIVO A ENTREGAR**.
 6. **Imprimir / PDF**, **Exportar Excel** o **Exportar CSV**.
+7. Para armar otro informe, **Nuevo informe**: quita el archivo de la pantalla y suelta la
+   fecha, el turno y el rango elegidos. Antes intenta subir lo que quede pendiente y avisa
+   si algo se queda sin subir. No borra lo guardado en línea ni las novedades ya
+   registradas de otros turnos.
 
 Para instalarla como aplicación de escritorio: botón **Instalar app** de la barra superior
 (o el icono de instalación en la barra de direcciones del navegador).
