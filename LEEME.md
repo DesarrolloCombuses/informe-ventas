@@ -98,6 +98,16 @@ mientras el filtro está activo.
 Si se cambia de fecha, de turno o de rango y el agente elegido no trabajó ahí, el filtro
 se suelta solo y vuelve a **Todos**. No se guarda: es un filtro de consulta.
 
+### Corregir el nombre de un agente
+
+El CSV a veces trae un identificador largo en la columna *Agente* en vez del nombre de
+la persona. Se escribe el nombre encima, en la propia celda de la tabla, y queda guardado
+como configuración compartida: vale para **todas las fechas y para todos los líderes**,
+y se aplica en la tabla, el filtro, el título, la impresión y las exportaciones.
+
+El dato original del CSV no se toca: al dejar la celda vacía vuelve a mostrarse el
+identificador. Si se corrige sin conexión, queda en el equipo y se publica al reconectar.
+
 ## Estructura esperada del CSV
 
 ```
@@ -111,8 +121,17 @@ en `dd/mm/aaaa` o ISO.
 
 ## Novedades
 
+- Cada novedad señala **a quién corresponde**: la primera columna es una lista con los
+  agentes del informe que se está viendo, por su nombre y la hora de su turno (así se
+  distingue a quien tiene varios). Antes había que escribir el `shift_id` a mano, que con
+  los identificadores largos del CSV era imposible.
+- La opción **Todo el turno** es para lo que no es de una persona en particular.
 - **RESTAR** descuenta el monto del subtotal; **SUMAR** lo agrega.
 - El monto se escribe en positivo; el signo lo pone la acción (se muestra en rojo si resta).
+- Con el **filtro por agente** puesto cuentan solo las novedades de ese agente; las de
+  «Todo el turno» quedan fuera, para que su total sea de verdad lo suyo. Una novedad
+  creada con el filtro puesto nace ya asignada a uno de sus turnos.
+- En la impresión y en las exportaciones sale el **nombre del agente**, no el identificador.
 - Se guardan automáticamente en el equipo, separadas por fecha y turno, y siguen ahí al reabrir la app.
 
 ## Consignaciones y deducciones

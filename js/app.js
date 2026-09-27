@@ -53,6 +53,7 @@ const LS = {
   deduc:  'idv.deducciones',
   turnos: 'idv.turnos',
   titles: 'idv.titulos',
+  agentes: 'idv.agentes',
   sel:    'idv.seleccion',
   pend:   'idv.pendientes',
   libre:  'idv.rangolibre',
@@ -75,6 +76,7 @@ const state = {
   turnoId: '',
   criterio: 'inicio',              // inicio | fin | activo
   agente: '',                      // '' = todos los agentes
+  nombresAgentes: {},              // { "nombre del CSV": "nombre corregido" }
   origen: '',                      // archivo | nube | mixto
   fechasNube: {},                  // { "YYYY-MM-DD": cantidad de turnos }
   perfil: null,                    // ficha en informe_usuarios (null = no habilitado)
@@ -421,7 +423,7 @@ function tituloAuto() {
   const nombre = t.id === TURNO_LIBRE.id
     ? `DE ${horaTexto(t.from)} A ${horaTexto(t.to)}`
     : t.name;
-  const agente = state.agente ? ` - AGENTE ${state.agente.toUpperCase()}` : '';
+  const agente = state.agente ? ` - AGENTE ${nombreAgente(state.agente).toUpperCase()}` : '';
   if (!y) return `INFORME DIARIO DE VENTAS ${nombre}${agente}`;
   return `INFORME DIARIO DE VENTAS ${d} DE ${MESES[m - 1].toUpperCase()} ${nombre}${agente}`;
 }
@@ -468,9 +470,14 @@ function textoFirma(n) {
 
 function addNovedad() {
   const list = novedadesActuales().slice();
+  /* Con un agente filtrado la novedad nace en uno de sus turnos: si naciera
+     sin dueño no se vería, porque el filtro deja fuera las del turno entero. */
+  const suyo = state.agente
+    ? ((filasDelTurno().find((r) => r.agente === state.agente) || {}).shift || '')
+    : '';
   list.push(Object.assign({
     id: 'n' + Date.now() + Math.random().toString(36).slice(2, 6),
-    shift: '', accion: 'RESTAR', texto: '',
+    shift: suyo, accion: 'RESTAR', texto: '',
     efectivo: 0, transfer: 0, tarjeta: 0
   }, firmaAutor(true)));
   saveNovedades(list);
@@ -547,9 +554,81 @@ function deleteCaja(tipo, id) {
 
 /* --------------------------------- totales -------------------------------- */
 
+/* -------------------------- nombres de agentes ----------------------------
+   El CSV a veces trae un identificador largo en vez del nombre de la persona.
+   Quien lo vea puede escribir el nombre encima, en la tabla: se guarda como
+   configuración compartida, así que vale para todas las fechas y para todos.
+   El dato del CSV no se toca, de modo que siempre se puede volver atrás.
+   ------------------------------------------------------------------------- */
+
+/** Nombre con el que se muestra un agente: el corregido, si alguien lo puso. */
+function nombreAgente(bruto) {
+  return state.nombresAgentes[bruto] || bruto;
+}
+
+/** Celda del agente: se escribe encima para corregir el nombre. */
+function celdaAgente(r) {
+  const input = el('input', {
+    class: 'cell-input', type: 'text', value: nombreAgente(r.agente),
+    title: 'Nombre en el CSV: ' + r.agente + '\nEscribe encima para corregirlo en todos los informes.'
+  });
+  input.addEventListener('change', () => guardarNombreAgente(r.agente, input.value));
+  return input;
+}
+
+/** Guarda el nombre corregido. Vacío, o igual al del CSV, borra la corrección. */
+async function guardarNombreAgente(bruto, escrito) {
+  const limpio = String(escrito || '').trim();
+  const antes = JSON.stringify(state.nombresAgentes);
+
+  if (limpio && limpio !== bruto) state.nombresAgentes[bruto] = limpio;
+  else delete state.nombresAgentes[bruto];
+  if (JSON.stringify(state.nombresAgentes) === antes) return;   // no cambió nada
+
+  store.set(LS.agentes, state.nombresAgentes);
+  render();
+
+  if (!Nube.conectado()) {
+    toast('Sin conexión: el nombre queda en este equipo y se sube al reconectar');
+    return;
+  }
+  try {
+    await Nube.guardarConfig('agentes', state.nombresAgentes, ubicacionActual());
+    toast(limpio ? `Ahora se llama "${limpio}" en todos los informes`
+                 : 'Nombre devuelto al del CSV');
+    refrescarEstadoNube();
+  } catch (err) {
+    setSyncEstado('err', err.message || 'No se pudo guardar el nombre del agente');
+  }
+}
+
+/** Hora de inicio de un turno, para distinguir a un agente que tiene varios. */
+function horaDeFila(r) {
+  return r.inicio ? r.inicio.toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit' }) : '';
+}
+
+/** De quién es una novedad: el nombre del agente de ese turno. Sin turno
+    señalado, la novedad es del turno entero. */
+function agenteDeNovedad(n) {
+  if (!n.shift) return 'Todo el turno';
+  const fila = state.rows.find((r) => r.shift === n.shift);
+  return fila ? nombreAgente(fila.agente) : n.shift;
+}
+
+/** Novedades que entran en el informe a la vista. Con un agente filtrado solo
+    cuentan las que señalan turnos suyos: las del turno entero quedan fuera,
+    para que su total sea de verdad lo suyo. */
+function novedadesDelInforme() {
+  const todas = novedadesActuales();
+  if (!state.agente) return todas;
+  const suyos = {};
+  filasDelTurno().forEach((r) => { if (r.agente === state.agente) suyos[r.shift] = true; });
+  return todas.filter((n) => n.shift && suyos[n.shift]);
+}
+
 function calcular() {
   const rows = filteredRows();
-  const novs = novedadesActuales();
+  const novs = novedadesDelInforme();
 
   const sub = rows.reduce((a, r) => ({
     ventas: a.ventas + r.ventas,
@@ -663,7 +742,7 @@ function render() {
   /* --- filas de turnos --- */
   rows.forEach((r) => {
     tb.appendChild(el('tr', { class: 'r-data' }, [
-      td(r.shift), td(r.agente),
+      td(r.shift), td(celdaAgente(r)),
       td(fmtInt(r.ventas), 'num'), td(fmtInt(r.pax), 'num'),
       td(r.inicioTxt, 'date'), td(r.finalTxt, 'date'),
       td(fmtMoney(r.efectivo), 'num'),
@@ -674,7 +753,7 @@ function render() {
 
   /* --- fila de subtotales = encabezado de NOVEDADES --- */
   tb.appendChild(el('tr', { class: 'r-total' }, [
-    td('shift_id', 'c-label'),
+    td('AGENTE', 'c-label'),
     td('ACCION', 'c-label center'),
     td('NOVEDADES', 'center', 4),
     td(fmtMoney(sub.efectivo), 'num'),
@@ -700,27 +779,30 @@ function render() {
 
   table.appendChild(tb);
 
-  // lista de shift_id disponibles para el datalist de novedades
-  const dl = document.getElementById('shiftList') || el('datalist', { id: 'shiftList' });
-  dl.textContent = '';
-  rows.forEach((r) => dl.appendChild(el('option', { value: r.shift })));
-  if (!dl.parentNode) document.body.appendChild(dl);
 }
 
 function renderNovedad(n, rows) {
   const tr = el('tr', { class: 'r-nov' });
 
-  /* shift_id + botón eliminar */
+  /* a quién corresponde la novedad + botón eliminar */
   const wrap = el('div', { class: 'cell-with-btn' });
   const del = el('button', { class: 'del-nov no-print', type: 'button', title: 'Eliminar novedad', text: '×' });
   del.addEventListener('click', () => deleteNovedad(n.id));
-  const inShift = el('input', {
-    class: 'cell-input', type: 'text', value: n.shift, placeholder: 'shift_id', list: 'shiftList'
-  });
-  inShift.setAttribute('list', 'shiftList');
-  inShift.addEventListener('change', () => updateNovedad(n.id, 'shift', inShift.value.trim()));
+
+  const selAg = el('select', { class: 'cell-input', title: 'A quién corresponde esta novedad' });
+  selAg.appendChild(el('option', { value: '', text: 'Todo el turno' }));
+  rows.forEach((r) => selAg.appendChild(el('option', {
+    value: r.shift, text: nombreAgente(r.agente) + '  ·  ' + horaDeFila(r)
+  })));
+  /* si señala un turno que no está en el informe a la vista, no se pierde */
+  if (n.shift && !rows.some((r) => r.shift === n.shift)) {
+    selAg.appendChild(el('option', { value: n.shift, text: n.shift + '  (otro turno)' }));
+  }
+  selAg.value = n.shift || '';
+  selAg.addEventListener('change', () => { updateNovedad(n.id, 'shift', selAg.value); render(); });
+
   wrap.appendChild(del);
-  wrap.appendChild(inShift);
+  wrap.appendChild(selAg);
   tr.appendChild(td(wrap));
 
   /* acción */
@@ -920,13 +1002,13 @@ function buildAgentes() {
   const agentes = filasDelTurno()
     .map((r) => r.agente)
     .filter((a, i, todos) => a && todos.indexOf(a) === i)
-    .sort((a, b) => a.localeCompare(b, 'es'));
+    .sort((a, b) => nombreAgente(a).localeCompare(nombreAgente(b), 'es'));
 
   if (state.agente && agentes.indexOf(state.agente) === -1) state.agente = '';
 
   sel.textContent = '';
   sel.appendChild(el('option', { value: '', text: `Todos  ·  ${agentes.length}` }));
-  agentes.forEach((a) => sel.appendChild(el('option', { value: a, text: a })));
+  agentes.forEach((a) => sel.appendChild(el('option', { value: a, text: nombreAgente(a) })));
   sel.value = state.agente;
 }
 
@@ -949,11 +1031,12 @@ function pintarNotaCriterio() {
      HTML. Avisa de lo único que el filtro no puede repartir: la caja. */
   if (state.agente) {
     const aviso = el('div', { class: 'ctrl-aviso' });
-    aviso.appendChild(el('strong', { text: 'Solo ' + state.agente + ': ' }));
+    aviso.appendChild(el('strong', { text: 'Solo ' + nombreAgente(state.agente) + ': ' }));
     aviso.appendChild(document.createTextNode(
       'los totales, los indicadores y lo que se imprime o exporta cuentan únicamente '
-      + 'sus turnos. Las consignaciones y deducciones son del turno completo, así que '
-      + 'el EFECTIVO A ENTREGAR no corresponde solo a este agente.'));
+      + 'sus turnos y sus novedades; las novedades de «Todo el turno» quedan fuera. '
+      + 'Las consignaciones y deducciones sí son del turno completo, así que el '
+      + 'EFECTIVO A ENTREGAR no corresponde solo a este agente.'));
     $('#ctrlNote').appendChild(aviso);
   }
 }
@@ -976,14 +1059,14 @@ function reportMatrix() {
   out.push([tituloActual()]);
   out.push(COLS.map((c) => c.label));
   rows.forEach((r) => out.push([
-    r.shift, r.agente, r.ventas, r.pax, r.inicioTxt, r.finalTxt,
+    r.shift, nombreAgente(r.agente), r.ventas, r.pax, r.inicioTxt, r.finalTxt,
     r.efectivo, r.transfer, r.tarjeta
   ]));
-  out.push(['shift_id', 'ACCION', 'NOVEDADES', '', '', '', sub.efectivo, sub.transfer, sub.tarjeta]);
+  out.push(['AGENTE', 'ACCION', 'NOVEDADES', '', '', '', sub.efectivo, sub.transfer, sub.tarjeta]);
   novs.forEach((n) => {
     const s = signo(n);
     out.push([
-      n.shift, n.accion, n.texto, '', '', '',
+      agenteDeNovedad(n), n.accion, n.texto, '', '', '',
       s * Math.abs(parseNum(n.efectivo)),
       s * Math.abs(parseNum(n.transfer)),
       s * Math.abs(parseNum(n.tarjeta))
@@ -1075,7 +1158,7 @@ function exportExcel() {
       return v ? s * v : '';
     };
     html += '<tr>'
-      + `<td style="${border}">${esc(n.shift)}</td>`
+      + `<td style="${border}">${esc(agenteDeNovedad(n))}</td>`
       + `<td style="${border}text-align:center">${esc(n.accion)}</td>`
       + `<td colspan="4" style="${border}text-align:center">${esc(n.texto)}</td>`
       + cellNum(val('efectivo')) + cellNum(val('transfer')) + cellNum(val('tarjeta'))
@@ -1371,6 +1454,7 @@ function init() {
   state.consignaciones = store.get(LS.consig, {});
   state.deducciones = store.get(LS.deduc, {});
   state.titulos = store.get(LS.titles, {});
+  state.nombresAgentes = store.get(LS.agentes, {});
   state.sedes = store.get(LS.sedes, []);
 
   pintarVersion();
@@ -1714,6 +1798,24 @@ async function subirTurnos() {
   catch (err) { setSyncEstado('err', err.message || 'No se pudo guardar la configuración'); }
 }
 
+/** Los nombres corregidos de los agentes son configuración compartida. Se
+    juntan los de la nube con los de este equipo (que pueden venir de un rato
+    sin conexión) y, si hay diferencia, se publica el resultado. */
+async function bajarAgentes() {
+  if (!Nube.conectado()) return;
+  try {
+    const fila = await Nube.leerConfig('agentes');
+    const remoto = (fila && fila.valor) || {};
+    const juntos = Object.assign({}, remoto, state.nombresAgentes);
+    const hayCambio = JSON.stringify(juntos) !== JSON.stringify(remoto);
+
+    state.nombresAgentes = juntos;
+    store.set(LS.agentes, juntos);
+    if (hayCambio) await Nube.guardarConfig('agentes', juntos, ubicacionActual());
+    if (state.rows.length) { buildControls(); render(); }
+  } catch (_) { /* los nombres de este equipo siguen sirviendo */ }
+}
+
 async function sincronizarTodo() {
   if (!state.desbloqueado || !Nube.conectado()) return;
   if (!state.perfil) await cargarPerfil();
@@ -1727,6 +1829,7 @@ async function sincronizarTodo() {
   await cargarSedes();
   await cargarFechasNube();
   await bajarTurnos();
+  await bajarAgentes();
   if (state.date) await bajarCierres(state.date);
   else await abrirUltimaFecha();
   if (state.date && state.turnoId) await bajarInforme(currentKey());
