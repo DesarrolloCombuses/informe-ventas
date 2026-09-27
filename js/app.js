@@ -74,6 +74,7 @@ const state = {
   date: '',
   turnoId: '',
   criterio: 'inicio',              // inicio | fin | activo
+  agente: '',                      // '' = todos los agentes
   origen: '',                      // archivo | nube | mixto
   fechasNube: {},                  // { "YYYY-MM-DD": cantidad de turnos }
   perfil: null,                    // ficha en informe_usuarios (null = no habilitado)
@@ -368,7 +369,9 @@ function enRangoHorario(minutos, from, to) {
 }
 
 /** Filas del CSV que cumplen la fecha + rango horario, según el criterio elegido. */
-function filteredRows() {
+/** Filas del turno elegido, sin aplicar el filtro por agente: de aquí sale la
+    lista de agentes que trabajaron en ese rango. */
+function filasDelTurno() {
   const { desde, hasta, from, to } = ventanaDelRango();
 
   let rows = state.rows.filter((r) => {
@@ -396,6 +399,13 @@ function filteredRows() {
   return rows;
 }
 
+/** Lo que ve el informe: las filas del turno y, si hay un agente elegido, solo
+    las suyas. Los totales, los KPIs y las exportaciones salen de aquí. */
+function filteredRows() {
+  const rows = filasDelTurno();
+  return state.agente ? rows.filter((r) => r.agente === state.agente) : rows;
+}
+
 /** "6:00 a. m." -> texto corto para el título del informe. */
 function horaTexto(hhmm) {
   const min = hhmmToMinutes(hhmm);
@@ -411,8 +421,9 @@ function tituloAuto() {
   const nombre = t.id === TURNO_LIBRE.id
     ? `DE ${horaTexto(t.from)} A ${horaTexto(t.to)}`
     : t.name;
-  if (!y) return `INFORME DIARIO DE VENTAS ${nombre}`;
-  return `INFORME DIARIO DE VENTAS ${d} DE ${MESES[m - 1].toUpperCase()} ${nombre}`;
+  const agente = state.agente ? ` - AGENTE ${state.agente.toUpperCase()}` : '';
+  if (!y) return `INFORME DIARIO DE VENTAS ${nombre}${agente}`;
+  return `INFORME DIARIO DE VENTAS ${d} DE ${MESES[m - 1].toUpperCase()} ${nombre}${agente}`;
 }
 
 const tituloActual = () => state.titulos[currentKey()] || tituloAuto();
@@ -608,6 +619,7 @@ function td(content, cls, colSpan) {
 
 function render() {
   if (!state.rows.length) return;
+  buildAgentes();                      // la lista cambia con la fecha y el turno
   const datos = calcular();
   const { rows, novs, sub, total } = datos;
 
@@ -619,6 +631,7 @@ function render() {
   if ($('#selDate').value !== state.date) $('#selDate').value = state.date;
   if ($('#selShift').value !== state.turnoId) $('#selShift').value = state.turnoId;
   if ($('#selCriterio').value !== state.criterio) $('#selCriterio').value = state.criterio;
+  if ($('#selAgente').value !== state.agente) $('#selAgente').value = state.agente;
   pintarNotaCriterio();
 
   renderKpis(datos);
@@ -892,9 +905,29 @@ function buildControls() {
   }
   selCrit.value = state.criterio;
 
+  buildAgentes();
   syncShiftInputs();
   pintarNotaCriterio();
   pintarPermisos();
+}
+
+/** Llena la lista con los agentes que trabajaron en el turno a la vista. Si el
+    agente elegido no aparece en el turno nuevo, se vuelve a "todos". */
+function buildAgentes() {
+  const sel = $('#selAgente');
+  if (!sel) return;
+
+  const agentes = filasDelTurno()
+    .map((r) => r.agente)
+    .filter((a, i, todos) => a && todos.indexOf(a) === i)
+    .sort((a, b) => a.localeCompare(b, 'es'));
+
+  if (state.agente && agentes.indexOf(state.agente) === -1) state.agente = '';
+
+  sel.textContent = '';
+  sel.appendChild(el('option', { value: '', text: `Todos  ·  ${agentes.length}` }));
+  agentes.forEach((a) => sel.appendChild(el('option', { value: a, text: a })));
+  sel.value = state.agente;
 }
 
 /** Borrar un día es solo del administrador: a los demás ni se les muestra. */
@@ -911,6 +944,18 @@ function pintarNotaCriterio() {
     + ` Rango actual: <strong>${horaTexto(t.from)} – ${horaTexto(t.to)}</strong>`
     + (hhmmToMinutes(t.to) < hhmmToMinutes(t.from) ? ' (cruza la medianoche).' : '.')
     + (libre ? ' Este rango no modifica los turnos guardados.' : '');
+
+  /* El nombre del agente viene del CSV, así que se pega como texto y no como
+     HTML. Avisa de lo único que el filtro no puede repartir: la caja. */
+  if (state.agente) {
+    const aviso = el('div', { class: 'ctrl-aviso' });
+    aviso.appendChild(el('strong', { text: 'Solo ' + state.agente + ': ' }));
+    aviso.appendChild(document.createTextNode(
+      'los totales, los indicadores y lo que se imprime o exporta cuentan únicamente '
+      + 'sus turnos. Las consignaciones y deducciones son del turno completo, así que '
+      + 'el EFECTIVO A ENTREGAR no corresponde solo a este agente.'));
+    $('#ctrlNote').appendChild(aviso);
+  }
 }
 
 function syncShiftInputs() {
@@ -1150,6 +1195,11 @@ function bindEvents() {
     syncShiftInputs();
     render();
     bajarInforme(currentKey());
+  });
+
+  $('#selAgente').addEventListener('change', (e) => {
+    state.agente = e.target.value;   // filtro de consulta: no se guarda
+    render();
   });
 
   ['#shiftFrom', '#shiftTo'].forEach((sel) => {
@@ -1876,6 +1926,7 @@ async function nuevoInforme() {
   state.date = '';
   state.turnoId = '';
   state.criterio = 'inicio';
+  state.agente = '';
   state.sort = { key: null, dir: 1 };
   state.libre = Object.assign({}, TURNO_LIBRE);
   store.del(LS.libre);

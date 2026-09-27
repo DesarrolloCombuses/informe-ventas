@@ -88,6 +88,8 @@ body{
 }
 .field select:focus,.field input:focus{outline:2px solid #b9d0ff; outline-offset:0; border-color:var(--blue)}
 .ctrl-note{margin-top:10px; font-size:12px; color:var(--muted); border-top:1px solid #eef1f7; padding-top:9px}
+.ctrl-aviso{margin-top:7px; padding:7px 9px; border:1px solid #f3e2c7; border-radius:8px;
+            background:#fff8ec; color:#8a4b00}
 
 /* ---------- kpis ---------- */
 .kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:16px}

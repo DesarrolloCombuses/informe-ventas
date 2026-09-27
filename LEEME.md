@@ -67,6 +67,20 @@ sin alterar los turnos de todos. El título del informe refleja el rango (*... D
 Si la hora final es menor que la inicial (por ejemplo 22:00 – 06:00), el rango cruza la medianoche
 y, con el criterio *Activos en el rango*, toma turnos de la noche que cierran al día siguiente.
 
+### Filtro por agente
+
+El desplegable **Agente** lista a quienes trabajaron en el turno a la vista. Al elegir a
+uno, la tabla, los indicadores, el título, la impresión y las exportaciones cuentan **solo
+sus turnos**.
+
+Las consignaciones y deducciones se registran por turno, no por agente, así que siguen
+siendo las del turno completo: el **EFECTIVO A ENTREGAR** que se ve con el filtro puesto no
+es lo que debe entregar esa persona. La aplicación lo advierte debajo de los filtros
+mientras el filtro está activo.
+
+Si se cambia de fecha, de turno o de rango y el agente elegido no trabajó ahí, el filtro
+se suelta solo y vuelve a **Todos**. No se guarda: es un filtro de consulta.
+
 ## Estructura esperada del CSV
 
 ```
