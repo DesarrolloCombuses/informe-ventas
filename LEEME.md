@@ -148,6 +148,28 @@ Se agregan con **+ Agregar consignación** y **+ Agregar deducción**. Los valor
 positivo y se muestran en rojo, porque siempre salen del efectivo. Como las novedades, se guardan
 por fecha y turno, viajan a Supabase y quedan firmadas con quién las registró, cuándo y desde dónde.
 
+## Historial de cambios
+
+El botón **Historial**, junto a *+ Agregar novedad*, abre la bitácora del informe: quién
+hizo cada cambio, a qué hora y desde qué sede, del más reciente al más antiguo.
+
+Queda anotado al cargar un archivo, al agregar, editar o borrar una novedad, una
+consignación o una deducción, al corregir el nombre de un agente, al cambiar el título o
+un rango de turno, y al borrar un día. Las anotaciones dicen lo que pasó en palabras, por
+ejemplo: *Puso $100.000 en efectivo en la novedad de Hernán Uno*.
+
+| Botón | Muestra |
+|---|---|
+| **Este turno** | Novedades, caja y título del turno que se está viendo |
+| **Todo el día** | Además, lo que es del día entero: cargas de archivo, nombres de agentes, rangos y borrados |
+
+La bitácora **solo se agrega**: nadie la edita ni la borra, tampoco el administrador, para
+que sirva de respaldo cuando haya que explicar un descuadre. Lo que se registra sin
+internet espera en el equipo y se sube al reconectar.
+
+Necesita su tabla en la base de datos (`supabase/migrations/20260927120000_informe_movimientos.sql`).
+Mientras no exista, la aplicación funciona igual y el historial lo avisa al abrirlo.
+
 ## Borrar un día
 
 El botón **Borrar día**, junto al selector de fecha, lo ve **solo el administrador** y pide dos

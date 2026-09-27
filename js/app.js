@@ -54,6 +54,7 @@ const LS = {
   turnos: 'idv.turnos',
   titles: 'idv.titulos',
   agentes: 'idv.agentes',
+  movPend: 'idv.movimientospendientes',
   sel:    'idv.seleccion',
   pend:   'idv.pendientes',
   libre:  'idv.rangolibre',
@@ -296,7 +297,11 @@ function loadCSVText(text, fileName, nuevo) {
 
   // Solo un archivo recién cargado se sube (y queda firmado con quién y dónde).
   // Reabrir el CSV guardado en el equipo no vuelve a subir ni re-firma nada.
-  if (nuevo) store.set(LS.cierresPend, { ubicacion: ubicacionActual() });
+  if (nuevo) {
+    store.set(LS.cierresPend, { ubicacion: ubicacionActual() });
+    anotar('csv', 'cargar', `Cargó el archivo "${fileName}" con ${rows.length} turno(s)`,
+      { archivo: fileName, turnos: rows.length });
+  }
   const pendiente = store.get(LS.cierresPend, null);
   if (pendiente) {
     sync.cierresPorSubir = rows;
@@ -481,6 +486,9 @@ function addNovedad() {
     efectivo: 0, transfer: 0, tarjeta: 0
   }, firmaAutor(true)));
   saveNovedades(list);
+  anotar('novedad', 'agregar', suyo
+    ? `Agregó una novedad para ${nombreAgente(state.agente)}`
+    : 'Agregó una novedad', { novedad: list[list.length - 1].id });
   render();
   // enfoca la descripción de la fila recién creada
   const inputs = document.querySelectorAll('.r-nov .nov-texto');
@@ -489,16 +497,28 @@ function addNovedad() {
 
 function updateNovedad(id, field, value) {
   let cambio = false;
+  const antes = novedadesActuales().find((n) => n.id === id);
   const list = novedadesActuales().map((n) => {
     if (n.id !== id || n[field] === value) return n;   // salir del campo sin cambiar no firma
     cambio = true;
     return Object.assign({}, n, { [field]: value }, firmaAutor(false));
   });
-  if (cambio) saveNovedades(list);
+  if (cambio) {
+    saveNovedades(list);
+    anotar('novedad', 'editar', describirCambioNovedad(antes, field, value),
+      { novedad: id, campo: field, valor: value });
+  }
 }
 
 function deleteNovedad(id) {
-  saveNovedades(novedadesActuales().filter((n) => n.id !== id));
+  const n = novedadesActuales().find((x) => x.id === id);
+  saveNovedades(novedadesActuales().filter((x) => x.id !== id));
+  if (n) {
+    const plata = resumenPlata(n);
+    anotar('novedad', 'borrar',
+      `Borró la novedad de ${agenteDeNovedad(n)}` + (plata ? ` (${n.accion} ${plata})` : ''),
+      { novedad: id });
+  }
   render();
 }
 
@@ -532,6 +552,8 @@ function addCaja(tipo) {
     { id: 'c' + Date.now() + Math.random().toString(36).slice(2, 6) },
     campos, firmaAutor(true)));
   guardarCaja(tipo, list);
+  anotar(tipo === 'consignaciones' ? 'consignacion' : 'deduccion', 'agregar',
+    `Agregó una ${ETIQUETA_CAJA[tipo]}`, { renglon: list[list.length - 1].id });
   render();
   const inputs = document.querySelectorAll(`.r-${tipo} .caja-foco`);
   if (inputs.length) inputs[inputs.length - 1].focus();
@@ -544,11 +566,22 @@ function updateCaja(tipo, id, field, value) {
     cambio = true;
     return Object.assign({}, x, { [field]: value }, firmaAutor(false));
   });
-  if (cambio) guardarCaja(tipo, list);
+  if (cambio) {
+    guardarCaja(tipo, list);
+    const x = cajaActual(tipo).find((c) => c.id === id) || {};
+    anotar(tipo === 'consignaciones' ? 'consignacion' : 'deduccion', 'editar',
+      `Cambió una ${ETIQUETA_CAJA[tipo]}: ${resumenPlata(x) || x.texto || 'sin valor'}`,
+      { renglon: id, campo: field });
+  }
 }
 
 function deleteCaja(tipo, id) {
-  guardarCaja(tipo, cajaActual(tipo).filter((x) => x.id !== id));
+  const x = cajaActual(tipo).find((c) => c.id === id);
+  guardarCaja(tipo, cajaActual(tipo).filter((c) => c.id !== id));
+  if (x) {
+    anotar(tipo === 'consignaciones' ? 'consignacion' : 'deduccion', 'borrar',
+      `Borró una ${ETIQUETA_CAJA[tipo]} de ${resumenPlata(x) || 'sin valor'}`, { renglon: id });
+  }
   render();
 }
 
@@ -586,6 +619,9 @@ async function guardarNombreAgente(bruto, escrito) {
   if (JSON.stringify(state.nombresAgentes) === antes) return;   // no cambió nada
 
   store.set(LS.agentes, state.nombresAgentes);
+  anotar('agente', 'editar', limpio
+    ? `Ahora "${bruto}" se llama "${limpio}"`
+    : `Quitó el nombre que tenía "${bruto}"`, { agente: bruto, nombre: limpio });
   render();
 
   if (!Nube.conectado()) {
@@ -1297,6 +1333,9 @@ function bindEvents() {
         store.set(LS.turnos, state.turnos);
         render();
         subirTurnos();
+        anotar('turno', 'editar',
+          `Cambió el rango de ${t.name} a ${horaTexto(t.from)} – ${horaTexto(t.to)}`,
+          { turno: t.id, from: t.from, to: t.to });
       }
     });
   });
@@ -1312,6 +1351,8 @@ function bindEvents() {
   });
 
   const title = $('#reportTitle');
+  title.addEventListener('change', () => anotar('titulo', 'editar',
+    `Cambió el título del informe a "${title.value}"`, { titulo: title.value }));
   title.addEventListener('input', () => {
     state.titulos[currentKey()] = title.value;
     store.set(LS.titles, state.titulos);
@@ -1331,6 +1372,14 @@ function bindEvents() {
   $('#btnAddNov').addEventListener('click', addNovedad);
   $('#btnAddConsig').addEventListener('click', () => addCaja('consignaciones'));
   $('#btnAddDeduc').addEventListener('click', () => addCaja('deducciones'));
+
+  $('#btnHistorial').addEventListener('click', () => abrirHistorial(true));
+  $('#btnHistTurno').addEventListener('click', () => abrirHistorial(true));
+  $('#btnHistDia').addEventListener('click', () => abrirHistorial(false));
+  $('#btnCerrarHist').addEventListener('click', () => { $('#modalHistorial').hidden = true; });
+  $('#modalHistorial').addEventListener('click', (e) => {
+    if (e.target.id === 'modalHistorial') $('#modalHistorial').hidden = true;   // clic afuera
+  });
   $('#btnBorrarDia').addEventListener('click', borrarDia);
   $('#btnPrint').addEventListener('click', () => window.print());
   $('#btnExcel').addEventListener('click', exportExcel);
@@ -1456,6 +1505,7 @@ function init() {
   state.titulos = store.get(LS.titles, {});
   state.nombresAgentes = store.get(LS.agentes, {});
   state.sedes = store.get(LS.sedes, []);
+  sync.movPorSubir = store.get(LS.movPend, []);
 
   pintarVersion();
   bindEvents();
@@ -1472,7 +1522,8 @@ function init() {
 
 const sync = {
   pendientes: {}, remoto: {}, autorRemoto: {}, ubicRemoto: {}, timer: null,
-  cierresPorSubir: null, ubicCierres: null
+  cierresPorSubir: null, ubicCierres: null,
+  movPorSubir: []
 };
 
 const horaCorta = () =>
@@ -1825,6 +1876,7 @@ async function sincronizarTodo() {
   }
   await subirPendientes();
   await subirCierresPendientes();
+  await subirMovimientos();
   await cargarUsuariosMapa();
   await cargarSedes();
   await cargarFechasNube();
@@ -1930,6 +1982,180 @@ async function subirCierresPendientes() {
   }
 }
 
+/* -------------------------------- bitácora -------------------------------
+   Cada cambio del informe queda anotado con quién lo hizo, cuándo y desde
+   qué sede. La bitácora solo se agrega: nadie la edita ni la borra, ni el
+   administrador, para que sirva de respaldo al explicar un descuadre.
+   Sin conexión las anotaciones esperan en el equipo y se suben después.
+   ------------------------------------------------------------------------- */
+
+const MAX_MOV_PENDIENTES = 200;
+let bitacoraAusente = false;          // la tabla todavía no está creada
+
+/* Cargar el archivo, borrar un día, renombrar un agente o mover un rango no
+   son cambios de un turno sino del día entero: se anotan sin turno, y así
+   aparecen en «Todo el día» en vez de quedar escondidos en uno cualquiera. */
+const MOV_DEL_DIA = { csv: true, dia: true, agente: true, turno: true };
+
+function anotar(tipo, accion, descripcion, detalle) {
+  const u = Nube.usuario();
+  if (!state.desbloqueado || !u || bitacoraAusente) return;
+
+  const ubic = ubicacionActual();
+  sync.movPorSubir.push({
+    fecha: state.date || dateKey(new Date()),
+    turno_id: MOV_DEL_DIA[tipo] ? '' : (state.turnoId || ''),
+    tipo, accion, descripcion,
+    detalle: detalle || {},
+    autor_id: u.id,
+    autor: nombreUsuario() || u.email || '',
+    sede: (ubic && ubic.sede) || ''
+  });
+  if (sync.movPorSubir.length > MAX_MOV_PENDIENTES) {
+    sync.movPorSubir = sync.movPorSubir.slice(-MAX_MOV_PENDIENTES);
+  }
+  store.set(LS.movPend, sync.movPorSubir);
+  subirMovimientos();
+}
+
+async function subirMovimientos() {
+  if (!sync.movPorSubir.length || !state.desbloqueado || !Nube.conectado()) return;
+  const lote = sync.movPorSubir.slice();
+  try {
+    await Nube.registrarMovimientos(lote);
+    sync.movPorSubir = sync.movPorSubir.slice(lote.length);
+    store.set(LS.movPend, sync.movPorSubir);
+  } catch (err) {
+    /* Si la tabla no existe todavía se deja de intentar (y el historial lo
+       explica); cualquier otro fallo se reintenta al sincronizar. */
+    if (/informe_movimientos|does not exist|42P01|schema cache/i.test(err.message || '')) {
+      bitacoraAusente = true;
+      sync.movPorSubir = [];
+      store.del(LS.movPend);
+    }
+  }
+}
+
+/** Cuánta plata mueve una novedad o un renglón de caja, en palabras. */
+function resumenPlata(x) {
+  const partes = [];
+  [['efectivo', 'en efectivo'], ['transfer', 'en transferencia'], ['tarjeta', 'en tarjeta']]
+    .forEach(([campo, texto]) => {
+      const v = Math.abs(parseNum(x[campo]));
+      if (v) partes.push(fmtMoney(v) + ' ' + texto);
+    });
+  if (!partes.length && x.valor != null) {
+    const v = Math.abs(parseNum(x.valor));
+    if (v) partes.push(fmtMoney(v));
+  }
+  return partes.join(' y ');
+}
+
+const ETIQUETA_CAJA = { consignaciones: 'consignación', deducciones: 'deducción' };
+
+function describirCambioNovedad(n, campo, valor) {
+  const quien = agenteDeNovedad(n || {});
+  if (campo === 'shift') return `Pasó una novedad a ${agenteDeNovedad({ shift: valor })}`;
+  if (campo === 'accion') return `Puso ${valor} en la novedad de ${quien}`;
+  if (campo === 'texto') return `Describió la novedad de ${quien}: "${valor}"`;
+  const comoSeCobro = { efectivo: 'en efectivo', transfer: 'en transferencia', tarjeta: 'en tarjeta' }[campo];
+  if (comoSeCobro) {
+    return `Puso ${fmtMoney(Math.abs(parseNum(valor)))} ${comoSeCobro} en la novedad de ${quien}`;
+  }
+  return `Cambió la novedad de ${quien}`;
+}
+
+/* ------------------------- pantalla del historial ------------------------- */
+
+let histSoloTurno = true;
+
+async function abrirHistorial(soloTurno) {
+  if (soloTurno != null) histSoloTurno = !!soloTurno;
+  const lista = $('#histLista');
+  const aviso = $('#histAviso');
+
+  $('#modalHistorial').hidden = false;
+  $('#btnHistTurno').classList.toggle('btn-primary', histSoloTurno);
+  $('#btnHistDia').classList.toggle('btn-primary', !histSoloTurno);
+  $('#histResumen').textContent = histSoloTurno
+    ? `Cambios de ${currentTurno().name}, el ${fechaBonita(state.date)}. Las cargas de archivo `
+      + 'y los nombres de agentes son del día: están en «Todo el día».'
+    : `Cambios de todo el ${fechaBonita(state.date)}, en todos los turnos.`;
+
+  aviso.hidden = true;
+  lista.textContent = '';
+  lista.appendChild(el('p', { class: 'hint', text: 'Buscando...' }));
+
+  if (bitacoraAusente) {
+    lista.textContent = '';
+    aviso.hidden = false;
+    aviso.textContent = 'El historial todavía no está activo: falta crear su tabla en la base de '
+      + 'datos. El archivo con el comando está en supabase/migrations.';
+    return;
+  }
+  if (!Nube.conectado()) {
+    lista.textContent = '';
+    aviso.hidden = false;
+    aviso.textContent = 'El historial se guarda en línea: conéctate para verlo. Lo que registres '
+      + 'sin internet queda anotado y se sube al reconectar.';
+    return;
+  }
+
+  try {
+    await subirMovimientos();     // que se vea lo que este equipo acaba de hacer
+    const movs = await Nube.leerMovimientos(state.date, histSoloTurno ? state.turnoId : '', 200);
+    pintarHistorial(movs);
+  } catch (err) {
+    lista.textContent = '';
+    aviso.hidden = false;
+    aviso.textContent = err.message || 'No se pudo leer el historial.';
+  }
+}
+
+function pintarHistorial(movs) {
+  const lista = $('#histLista');
+  lista.textContent = '';
+
+  if (!movs.length) {
+    lista.appendChild(el('p', { class: 'hint', text: 'Todavía no hay cambios anotados aquí.' }));
+    return;
+  }
+
+  let diaPintado = '';
+  movs.forEach((m) => {
+    const cuando = new Date(m.creado_at);
+    const dia = cuando.toLocaleDateString('es-CO', { day: 'numeric', month: 'long' });
+    if (dia !== diaPintado) {
+      diaPintado = dia;
+      lista.appendChild(el('div', { class: 'hist-dia', text: dia }));
+    }
+
+    const meta = el('div', { class: 'hist-meta' });
+    meta.appendChild(el('span', {
+      text: cuando.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+    }));
+    meta.appendChild(el('strong', { text: m.autor || 'alguien' }));
+    if (m.sede) meta.appendChild(el('span', { text: '· ' + m.sede }));
+    if (!histSoloTurno && m.turno_id) meta.appendChild(el('span', { text: '· ' + nombreTurno(m.turno_id) }));
+
+    lista.appendChild(el('div', { class: 'hist-item' }, [
+      meta, el('div', { class: 'hist-que', text: m.descripcion })
+    ]));
+  });
+}
+
+/** Nombre legible de un turno guardado, aunque ya no exista con ese id. */
+function nombreTurno(id) {
+  if (id === TURNO_LIBRE.id) return 'rango libre';
+  const t = (state.turnos || []).find((x) => x.id === id);
+  return t ? t.name : id;
+}
+
+function fechaBonita(fecha) {
+  const [y, m, d] = String(fecha || '').split('-').map(Number);
+  return y ? `${d} de ${MESES[m - 1]} de ${y}` : 'día sin fecha';
+}
+
 /** Borra de la nube todo lo de un día. Solo el administrador; no se deshace. */
 async function borrarDia() {
   const fecha = state.date;
@@ -1953,6 +2179,13 @@ async function borrarDia() {
   setSyncEstado('', 'Borrando el día...');
   try {
     const borrado = await Nube.borrarDia(fecha);
+
+    /* se anota antes de tocar el estado, cuando la fecha borrada sigue siendo
+       la del informe a la vista; la bitácora no se borra con el día */
+    anotar('dia', 'borrar',
+      `Borró todo el ${bonita}: ${fmtInt(borrado.cierres)} cierre(s) y `
+      + `${fmtInt(borrado.informes)} informe(s)`,
+      { fecha, cierres: borrado.cierres, informes: borrado.informes });
 
     // se limpia lo de ese día en el equipo para que no vuelva a subirse
     [state.novedades, state.consignaciones, state.deducciones, state.titulos, sync.pendientes]

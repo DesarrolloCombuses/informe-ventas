@@ -149,6 +149,7 @@
       <button id="btnAddNov" class="btn btn-sm">+ Agregar novedad</button>
       <button id="btnAddConsig" class="btn btn-sm">+ Agregar consignación</button>
       <button id="btnAddDeduc" class="btn btn-sm">+ Agregar deducción</button>
+      <button id="btnHistorial" class="btn btn-sm" type="button">Historial</button>
       <span class="hint" id="infoModificacion">Las novedades se guardan automáticamente por fecha y turno.</span>
     </div>
   </section>
@@ -162,6 +163,29 @@
 <footer class="foot no-print">Cada cambio queda registrado con el nombre de quien lo hace · Funciona sin conexión
   · <span id="versionPie"></span></footer>
 
+
+<div id="modalHistorial" class="modal no-print" hidden>
+  <div class="modal-card modal-ancho" role="dialog" aria-modal="true" aria-labelledby="histTitulo">
+    <header class="modal-head">
+      <h2 id="histTitulo">Historial de cambios</h2>
+      <button id="btnCerrarHist" class="del-nov" type="button" title="Cerrar">&times;</button>
+    </header>
+
+    <div class="modal-body">
+      <p class="modal-lead" id="histResumen">Cambios de este informe.</p>
+      <p class="hint">Cada cambio queda anotado con quién lo hizo, la hora y la sede.
+        El historial no se puede editar ni borrar.</p>
+
+      <div class="modal-actions">
+        <button id="btnHistTurno" class="btn btn-sm btn-primary" type="button">Este turno</button>
+        <button id="btnHistDia" class="btn btn-sm" type="button">Todo el día</button>
+      </div>
+
+      <p id="histAviso" class="form-error" hidden></p>
+      <div id="histLista" class="hist-list"></div>
+    </div>
+  </div>
+</div>
 
 <div id="modalNube" class="modal no-print" hidden>
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalNubeTitulo">

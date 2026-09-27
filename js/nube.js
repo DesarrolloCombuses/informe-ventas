@@ -164,6 +164,28 @@ const Nube = (function () {
     return (filas && filas[0]) || null;
   }
 
+  /* ---------------------------- bitácora --------------------------------- */
+
+  /** Anota cambios del informe. La bitácora solo se agrega: no se edita. */
+  async function registrarMovimientos(filas) {
+    if (!filas || !filas.length) return 0;
+    const guardadas = await api('/rest/v1/informe_movimientos', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(filas)
+    });
+    return (guardadas || []).length;
+  }
+
+  /** Movimientos de un informe; sin turno, los de todo el día. */
+  async function leerMovimientos(fecha, turnoId, limite) {
+    let q = `/rest/v1/informe_movimientos?fecha=eq.${encodeURIComponent(fecha)}`;
+    if (turnoId) q += `&turno_id=eq.${encodeURIComponent(turnoId)}`;
+    q += '&select=id,fecha,turno_id,tipo,accion,descripcion,autor,sede,creado_at'
+       + `&order=creado_at.desc&limit=${limite || 200}`;
+    return (await api(q, { method: 'GET' })) || [];
+  }
+
   /* ----------------------------- cierres --------------------------------- */
 
   /** Sube (o actualiza) los cierres de turno. Se envían por lotes. */
@@ -301,6 +323,7 @@ const Nube = (function () {
     setConfig,
     iniciarSesion, recuperarClave, cerrarSesion,
     leerInforme, guardarInforme, leerConfig, guardarConfig,
+    registrarMovimientos, leerMovimientos,
     guardarCierres, leerCierresDelDia, leerFechasConCierres, borrarDia,
     miPerfil, leerUsuarios, guardarUsuario,
     leerSedes, crearSede, actualizarSede,

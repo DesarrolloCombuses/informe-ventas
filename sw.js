@@ -2,7 +2,7 @@
    Los archivos de la aplicación se piden a la red primero, para que nadie se
    quede con una versión vieja; la caché es el respaldo cuando no hay internet.
    El número de versión lo sube `publicar.ps1` en cada publicación. */
-const VERSION = 'v16';
+const VERSION = 'v17';
 const CACHE = 'idv-' + VERSION;
 
 const ASSETS = [

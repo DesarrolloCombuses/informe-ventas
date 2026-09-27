@@ -338,6 +338,19 @@ button.net:hover{filter:brightness(.97)}
 .btn-peligro{color:var(--bad)}
 .btn-peligro:hover:not(:disabled){background:#fdeceb; color:var(--bad)}
 
+/* ---------- historial de cambios ---------- */
+.modal-ancho{width:min(640px,100%)}
+.hist-list{display:flex; flex-direction:column; gap:7px; max-height:52vh; overflow-y:auto; padding-right:2px}
+.hist-item{border:1px solid var(--line); border-radius:8px; padding:8px 10px; background:#fbfcfe}
+.hist-meta{display:flex; gap:8px; flex-wrap:wrap; align-items:baseline; font-size:11.5px; color:var(--muted)}
+.hist-meta strong{color:var(--ink); font-weight:650}
+.hist-que{margin-top:3px; font-size:13px}
+.hist-dia{
+  margin:8px 0 2px; font-size:11px; font-weight:700; color:var(--muted);
+  text-transform:uppercase; letter-spacing:.06em;
+}
+.hist-dia:first-child{margin-top:0}
+
 /* ---------- tablet y pantallas medianas ----------
    Todo lo de aquí es solo para pantalla (`screen and`), para que no cambie
    nada de lo que sale impreso. */
