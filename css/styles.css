@@ -337,3 +337,71 @@ button.net:hover{filter:brightness(.97)}
 
 .btn-peligro{color:var(--bad)}
 .btn-peligro:hover:not(:disabled){background:#fdeceb; color:var(--bad)}
+
+/* ---------- tablet y pantallas medianas ----------
+   Todo lo de aquí es solo para pantalla (`screen and`), para que no cambie
+   nada de lo que sale impreso. */
+
+/* Donde se toca con el dedo, sin importar el ancho: controles más grandes.
+   Los campos van a 16px porque con menos el navegador hace zoom al
+   enfocarlos y descuadra la pantalla. */
+@media screen and (pointer:coarse){
+  .btn{min-height:44px; padding:11px 16px}
+  .btn-sm{min-height:40px; padding:9px 13px; font-size:14px}
+  .field select,.field input{min-height:44px; padding:11px 12px; font-size:16px}
+  .cell-input{min-height:34px; padding:7px 6px; font-size:15px}
+  .del-nov{width:32px; height:32px; font-size:19px}
+  .net{padding:9px 14px}
+  .linklike{padding:4px 2px}
+  .report td,.report th{padding:6px 7px}
+  .user-row input[type=text],
+  .user-row input[type=number],
+  .sede-nueva input{min-height:40px; padding:9px 10px; font-size:16px}
+}
+
+/* tablet acostada y ventanas medianas */
+@media screen and (max-width:1100px){
+  .wrap{padding:16px}
+  .topbar{padding:10px 14px; gap:10px}
+  .brand p{max-width:34ch}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(132px,1fr))}
+
+  /* la tabla se desplaza dentro de su marco y el encabezado azul se queda
+     a la vista, para no perder de qué columna es cada número */
+  .table-scroll{max-height:70vh; overflow:auto}
+  .report .r-head td{position:sticky; top:0; z-index:2}
+}
+
+/* tablet parada y pantallas estrechas */
+@media screen and (max-width:860px){
+  .topbar{align-items:flex-start}
+  .topbar-actions{width:100%}
+  .topbar-actions .btn{flex:1 1 auto}
+  .brand p{max-width:100%; white-space:normal}
+
+  /* los filtros pasan a dos columnas y el título ocupa su propia fila */
+  .ctrl-grid{display:grid; grid-template-columns:1fr 1fr; align-items:end; gap:10px}
+  .field,.field-hora,.field-grow{min-width:0}
+  .field-grow{grid-column:1 / -1}
+  #btnBorrarDia{justify-self:start}
+
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .report-wrap{padding:10px}
+  .report{min-width:720px; font-size:12.5px}
+
+  /* los cuadros de diálogo aprovechan la pantalla y se desplazan por dentro */
+  .modal{padding:12px}
+  .modal-card{width:min(560px,100%); max-height:92vh; display:flex; flex-direction:column}
+  .modal-body{overflow-y:auto}
+  .user-list{max-height:none}
+  .user-row{grid-template-columns:1fr auto}
+  .user-row .correo{grid-column:1 / -1}
+  .sede-nueva{grid-template-columns:1fr 84px}
+  .sede-nueva .btn{grid-column:1 / -1}
+}
+
+/* alto real de la ventana en tablet y móvil, descontando las barras del
+   sistema, que con 100vh dejaban la tarjeta de ingreso cortada */
+@supports (min-height:100dvh){
+  .gate{min-height:100dvh}
+}

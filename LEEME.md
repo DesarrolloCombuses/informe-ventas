@@ -33,6 +33,23 @@ no se ve ningún cierre ni novedad. Los CSV nunca se suben al repositorio (`.git
 Para instalarla como aplicación de escritorio: botón **Instalar app** de la barra superior
 (o el icono de instalación en la barra de direcciones del navegador).
 
+## En tablet y pantallas pequeñas
+
+La aplicación se acomoda al tamaño de la pantalla y al dedo:
+
+- Hasta 860 px de ancho (tablet parada, celular) los filtros pasan a dos columnas, el
+  título del informe ocupa su propia fila y los botones de la barra se reparten el ancho.
+- Hasta 1100 px la tabla se desplaza dentro de su marco y el encabezado azul queda fijo,
+  para no perder de qué columna es cada número.
+- Donde se toca con el dedo, botones y campos miden 44 px o más, y los campos usan letra
+  de 16 px: con menos, el navegador hace zoom solo al escribir y descuadra la pantalla.
+- Los cuadros de diálogo (Nube, usuarios, sedes) aprovechan la pantalla y se desplazan
+  por dentro cuando no caben.
+
+Nada de esto cambia lo que sale impreso: todas las reglas son solo para pantalla.
+
+Probado en 800×1280, 820×1180, 1180×820, 1280×800 y 600×960, con y sin pantalla táctil.
+
 ## Filtro por horas
 
 El panel tiene cuatro controles: **fecha**, **turno**, **filtrar por** y el rango **desde / hasta**.

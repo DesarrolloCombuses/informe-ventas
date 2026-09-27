@@ -1,3 +1,8 @@
+# Contrasenas de los usuarios: se quedan en este equipo, nunca en el repositorio
+claves-usuarios.txt
+*claves*.txt
+*contrasen*.txt
+
 # Datos reales de recaudo: nunca al repositorio
 data/
 *.csv
